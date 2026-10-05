@@ -1,0 +1,14 @@
+data/
+.env
+*.log
+.vercel/
+node_modules/
+.env*
+!.env.example
+output/
+tmp/
+*.zip
+*.tar.gz
+dist/
+coverage/
+production-site/

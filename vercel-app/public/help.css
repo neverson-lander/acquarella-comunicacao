@@ -1,0 +1,32 @@
+.help-toolbar { display:flex; align-items:center; justify-content:space-between; gap:24px; margin-bottom:24px; }
+.help-toolbar label { flex:1; max-width:620px; margin:0; font-size:13px; }
+.help-toolbar input { font-size:14px; }
+.help-layout { display:grid; grid-template-columns:260px minmax(0,1fr); gap:24px; align-items:start; }
+.help-index { background:white; border:1px solid var(--line); border-radius:10px; padding:18px; }
+.help-index h3 { font-size:12px; margin:22px 8px 10px; }
+.help-index p { font-size:12px; margin:0 8px 12px; }
+.help-index button { width:100%; display:block; font-size:13px; line-height:1.5; padding:10px; text-align:left; color:#345b69; background:transparent; border-radius:6px; }
+.help-index button[aria-current] { background:#ffe7ef; color:#a51947; font-weight:600; }
+.help-index button:hover { background:#f0f8fa; }
+.help-document { padding:30px; border:1px solid var(--line); border-radius:10px; background:white; min-width:0; color:#274f5e; font-size:15px; line-height:1.8; overflow-wrap:anywhere; }
+.help-document h2 { font-size:25px; line-height:1.3; margin:0 0 18px; }
+.help-document h3 { font-size:18px; margin:28px 0 12px; }
+.help-document p { color:#345b69; }
+.help-document li { margin-bottom:12px; }
+.help-document a { color:#a51947; text-decoration:underline; text-underline-offset:3px; }
+.help-document code { background:#edf6f8; padding:2px 5px; border-radius:4px; font-size:.9em; }
+.help-note { background:#edf8fa; border-left:4px solid #25abbe; padding:16px 20px; margin:20px 0; }
+.help-document .help-note p:last-child { margin-bottom:0; }
+.help-table { overflow-x:auto; margin:18px 0; }
+.help-document th,.help-document td { font-size:13px; padding:12px; color:#345b69; vertical-align:top; min-width:150px; }
+.help-document th { font-weight:650; background:#f2f8fa; }
+.help-meta { font-size:12px; color:#526d77; }
+.manual-page { margin:0 auto; padding:32px 20px; max-width:1100px; }
+.manual-page > header { margin-bottom:30px; }
+.manual-page .help-document article + article { border-top:1px solid var(--line); margin-top:40px; padding-top:40px; }
+.manual-toc { display:flex; flex-wrap:wrap; gap:12px 24px; margin:20px 0; }
+.manual-toc a { color:#a51947; text-decoration:underline; line-height:1.6; }
+.help-document:focus-visible { outline:3px solid #25abbe; outline-offset:3px; }
+@media(max-width:1100px) { .help-layout { grid-template-columns:210px minmax(0,1fr); gap:16px; } .help-document { padding:22px; } }
+@media(max-width:750px) { .help-layout { grid-template-columns:1fr; } .help-toolbar { align-items:stretch; flex-direction:column; gap:14px; } .help-index { max-height:300px; overflow:auto; } .help-document { padding:20px; } .help-document h2 { font-size:22px; } }
+@media print { body { background:white; } .manual-page { max-width:none; padding:0; } .manual-toc { display:none; } .help-document { border:0; padding:0; font-size:11pt; } .help-document h2,.help-document h3 { break-after:avoid; } .help-document li,.help-note,tr { break-inside:avoid; } a { color:inherit !important; } }

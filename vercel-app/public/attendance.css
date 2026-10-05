@@ -1,0 +1,6 @@
+.attendance-tabs{display:flex;flex-wrap:wrap;gap:8px;border-bottom:1px solid var(--line);margin-bottom:20px;padding-bottom:12px}
+.attendance-tabs button{border:1px solid var(--line);background:white;color:var(--petrol);border-radius:6px;padding:10px 12px;min-height:40px}
+.attendance-tabs button.chosen{background:#fde5ee;border-color:#cf2059;color:#a61a47}.attendance-tabs span{margin-left:6px;font-weight:700}
+.attendance-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px;border-bottom:1px solid var(--line);background:#fff}
+.attendance-toolbar small{flex:1;min-width:100px;color:#577681}.attendance-toolbar button{padding:7px 10px;font-size:11px}
+@media(max-width:650px){.attendance-tabs{gap:5px}.attendance-tabs button{font-size:11px;padding:8px}.attendance-toolbar button{flex:1;min-width:90px}}

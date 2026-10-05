@@ -1,0 +1,11 @@
+import { DatabaseSync } from 'node:sqlite';
+import { createDecipheriv, randomBytes } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+const key=readFileSync('data/secret.key'),db=new DatabaseSync('data/central.sqlite');
+const decrypt=value=>{const b=Buffer.from(value,'base64'),d=createDecipheriv('aes-256-gcm',key,b.subarray(0,12));d.setAuthTag(b.subarray(12,28));return JSON.parse(Buffer.concat([d.update(b.subarray(28)),d.final()]).toString());};
+const ig=db.prepare("SELECT external,secret FROM accounts WHERE channel='instagram' AND mode='live'").get();
+const ms=db.prepare("SELECT external,secret FROM accounts WHERE channel='messenger' AND mode='live'").get();
+if(!ig||!ms)throw new Error('Contas Meta ativas não encontradas.');
+const a=decrypt(ig.secret),b=decrypt(ms.secret);if(!a.token||!b.token||!b.appSecret)throw new Error('Credenciais Meta incompletas.');
+console.log(JSON.stringify({APP_ENCRYPTION_KEY:randomBytes(32).toString('base64'),META_APP_SECRET:b.appSecret,INSTAGRAM_ACCESS_TOKEN:a.token,INSTAGRAM_VERIFY_TOKEN:a.verifyToken,INSTAGRAM_ACCOUNT_ID:ig.external,MESSENGER_PAGE_TOKEN:b.token,MESSENGER_VERIFY_TOKEN:b.verifyToken,MESSENGER_PAGE_ID:ms.external}));
+db.close();
