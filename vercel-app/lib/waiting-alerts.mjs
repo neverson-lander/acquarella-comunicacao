@@ -43,7 +43,7 @@ export function alertText(account,queue,assigned,time){
   return lines.join('\n').slice(0,4000);
 }
 
-export function createWaitingAlerts({pool,send,now=Date.now}){
+export function createWaitingAlerts({pool,send,now=Date.now,requiresWindow=()=>true}){
   async function waiting(client,a,time,queueEnabled=true,assignedEnabled=true){
     let excluded=[];
     if(a.channel==='whatsapp'){
@@ -99,7 +99,7 @@ export function createWaitingAlerts({pool,send,now=Date.now}){
       const sender=(await client.query("select * from accounts where id=$1 and tenant=$2 and channel='whatsapp' and mode='live'",[senderId,a.tenant])).rows[0];
       const windows=sender?(await client.query('select phone,seen from bridge_windows where account=$1',[sender.id])).rows:[];
       const windowOpen=windows.some(w=>sameWhatsAppPhone(w.phone,job.recipient)&&time-Number(w.seen)<86400000);
-      const error=!sender?'Configure uma conta WhatsApp real para os alertas.':!windowOpen?`O destinatário +${job.recipient} precisa enviar uma mensagem ao número da API para abrir sua janela de 24 horas.`:null;
+      const error=!sender?'Configure uma conta WhatsApp real para os alertas.':(requiresWindow(sender)&&!windowOpen)?`O destinatário +${job.recipient} precisa enviar uma mensagem ao número da API para abrir sua janela de 24 horas.`:null;
       job.body=alertText(a,pending.queue,pending.assigned,time);
       await client.query('update jobs set state=$2,error=$3,body=$4,alert_started_at=$5 where id=$1',[job.id,error?'failed':'sending',error||'',job.body,time]);
       if(error)await client.query('insert into audit(id,tenant,action,created) values($1,$2,$3,$4)',[randomUUID(),a.tenant,`Alerta de ${clean(a.name)}: ${error}`,time]);
@@ -110,7 +110,7 @@ export function createWaitingAlerts({pool,send,now=Date.now}){
     if(!delivery)return {attempted:0,sent:0,failed:0};
     if(delivery.error)return {attempted:1,sent:0,failed:1};
     try{
-      const external=await send(delivery.sender,delivery.job.recipient,delivery.job.body);
+      const external=await send(delivery.sender,delivery.job.recipient,delivery.job.body,delivery.job.id);
       await pool.query("update jobs set state='sent',external=$2 where id=$1",[delivery.job.id,external]);
       return {attempted:1,sent:1,failed:0};
     }catch(error){

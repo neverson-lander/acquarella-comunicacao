@@ -1,0 +1,9 @@
+[Unit]
+Description=Backup do PostgreSQL e sessões WhatsApp da Acquarella
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /opt/acquarella/deploy/vps/backup.sh
+UMask=0077

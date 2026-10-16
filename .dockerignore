@@ -1,0 +1,14 @@
+**/node_modules
+**/.env
+**/.env.*
+**/*.env
+**/backups
+**/data
+**/.vercel
+.git
+tmp
+output
+production-site
+**/*.log
+**/*.sqlite*
+**/*.tar.gz

@@ -1,0 +1,97 @@
+name: acquarella
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+services:
+  postgres:
+    image: postgres:17-bookworm
+    environment:
+      POSTGRES_DB: acquarella
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina a senha do banco}
+      APP_DATABASE_PASSWORD: ${APP_DATABASE_PASSWORD:?Defina a senha da aplicação}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./init-database.sh:/docker-entrypoint-initdb.d/10-acquarella.sh:ro
+    networks: [database]
+    restart: unless-stopped
+    logging: *logging
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U postgres -d acquarella"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  app:
+    image: acquarella-app:local
+    build:
+      context: ../..
+      dockerfile: deploy/vps/Dockerfile
+    env_file: app.env
+    environment:
+      DEPLOYMENT_MODE: standalone
+      DATABASE_URL: postgres://acquarella:${APP_DATABASE_PASSWORD}@postgres:5432/acquarella
+      WHATSAPP_QR_URL: http://whatsapp-qr:3100
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [database, whatsapp, web]
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 20s
+    logging: *logging
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+  whatsapp-qr:
+    build:
+      context: ../..
+      dockerfile: whatsapp-qr-gateway/Dockerfile
+    env_file: gateway.env
+    environment:
+      HOST: 0.0.0.0
+      QR_DATA_DIR: /app/whatsapp-qr-gateway/data
+    volumes:
+      - whatsapp-data:/app/whatsapp-qr-gateway/data
+    networks: [whatsapp]
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 20s
+    logging: *logging
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3100/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+  caddy:
+    image: caddy:2
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?Defina o domínio}
+    ports: ["80:80", "443:443", "443:443/udp"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    # Resolve the public application name to Caddy inside the private network.
+    # OVH cloud-init can map the VPS hostname to 127.0.1.1 on the host resolver;
+    # containers must not use that address for HTTPS callbacks or attachments.
+    networks:
+      web:
+      whatsapp:
+        aliases:
+          - ${APP_DOMAIN}
+    restart: unless-stopped
+    logging: *logging
+networks:
+  database:
+    internal: true
+  whatsapp:
+  web:
+volumes:
+  postgres-data:
+  whatsapp-data:
+  caddy-data:
+  caddy-config:

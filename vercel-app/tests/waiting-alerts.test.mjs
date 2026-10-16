@@ -201,3 +201,13 @@ test('account API persists alerts and enforces administrator, tenant and schedul
     assert.equal((await app.fetch(new Request('https://example.test/api/internal/waiting-alerts',{headers:{authorization:'Bearer test-cron-secret'}}))).status,200);
   }finally{delete globalThis.__acquarellaPool;await f.db.close();}
 });
+
+
+test('QR alert sender bypasses Cloud API window only for its transport and keeps an idempotency key',async()=>{
+  const f=await fixture();try{
+    await f.conversation({age:20});await f.execute('delete from bridge_windows');
+    const sent=[];const worker=createWaitingAlerts({pool:f.pool,now:f.now,requiresWindow:()=>false,send:async(a,to,body,key)=>{sent.push({a,to,body,key});return 'qr-alert';}});
+    assert.equal((await worker()).sent,1);assert.equal(sent.length,1);assert.equal(sent[0].a.id,f.sender);assert.ok(sent[0].key);
+    assert.equal((await worker()).sent,0);
+  }finally{await f.db.close();}
+});

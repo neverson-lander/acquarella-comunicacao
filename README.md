@@ -1,10 +1,20 @@
 # Acquarella · Central de comunicação
 
-A versão atual de produção está em **[`vercel-app/`](vercel-app/README.md)**, com hospedagem na Vercel e banco PostgreSQL no Supabase: https://acquarella-comunicacao.vercel.app. Consulte o README dessa pasta para testes e publicação. O backend SQLite e o frontend da raiz são a versão local anterior.
+A versão atual de produção usa o código de **[`vercel-app/`](vercel-app/README.md)**, com aplicação Node.js, PostgreSQL, conector WhatsApp por QR Code e HTTPS na VPS: https://vps-0345876c.vps.ovh.ca/.
 
-Este repositório contém código, migrações e testes. Credenciais, bancos locais, logs, arquivos temporários e pacotes de implantação ficam fora do Git. Configure as variáveis do ambiente de destino a partir dos arquivos `.env.example` e vincule `vercel-app/` ao projeto Vercel existente antes de publicar.
+Inclui atendimento, CRM, anexos, canais oficiais da Meta e WhatsApp por aparelho vinculado. Cada canal permite configurar grade semanal, fuso horário, telefone de destino e encaminhamento dentro, fora ou a qualquer horário. A ponte de Instagram e Messenger pode enviar pelo WhatsApp por QR e devolver as respostas citadas ao canal de origem.
 
-Aplicação local funcional em português para centralizar Instagram Direct e Facebook Messenger, encaminhar mensagens para o WhatsApp da equipe e devolver respostas citadas ao canal de origem. Backend Node.js 24, banco SQLite persistente e frontend sem dependências externas.
+- [Implantação na VPS, atualização e backups](deploy/vps/README.md)
+- [Serviço WhatsApp por QR e testes locais](whatsapp-qr-gateway/README.md)
+- [Aplicação e configuração alternativa Vercel/Supabase](vercel-app/README.md)
+
+As credenciais e os dados da instalação não são distribuídos pelo repositório. Preserve as chaves de criptografia e os volumes ao atualizar uma instalação existente.
+
+Este repositório contém código, migrações e testes. Credenciais, bancos locais, logs, arquivos temporários e pacotes de implantação ficam fora do Git. Configure as variáveis do ambiente de destino a partir dos arquivos `.env.example`. Se optar por publicar na Vercel, vincule `vercel-app/` ao projeto existente.
+
+## Versão local anterior (SQLite)
+
+As instruções abaixo se referem ao backend `server.mjs` e ao frontend da raiz, anteriores à aplicação PostgreSQL de produção. Essa versão local centraliza Instagram Direct e Facebook Messenger e usa Node.js 24 com SQLite persistente.
 
 ## Executar
 

@@ -1,5 +1,7 @@
 # Acquarella — produção na Vercel e Supabase
 
+O código desta pasta também é usado na instalação independente atual na VPS. Para operar ou publicar nessa instalação, siga [deploy/vps/README.md](../deploy/vps/README.md). As instruções abaixo descrevem a alternativa Vercel/Supabase e não devem ser usadas para atualizar a VPS.
+
 Aplicação: https://acquarella-comunicacao.vercel.app
 
 O projeto Vercel `acquarella-comunicacao`, equipe `acquarella`, usa PostgreSQL gerenciado pelo Supabase. O administrador, as contas e o histórico inicial foram migrados da central local. O e-mail e a senha existentes continuam válidos; sessões antigas não foram transferidas.
@@ -107,3 +109,15 @@ O serviço publicado funciona sem depender do servidor local ou do Quick Tunnel.
 Cada canal possui `alerts_enabled`, `queue_alert_minutes` e `assigned_alert_minutes` (1–1440, padrão 15, desativado inicialmente). O intervalo define a espera mínima e a repetição por categoria. São considerados apenas casos abertos com mensagens recebidas após a última resposta enviada com sucesso. O alerta inclui cliente, espera e atendente, quando atribuída; exclui o próprio telefone da equipe. Independe de `forwarding_enabled`.
 
 O build configura Supabase pg_cron + pg_net a cada minuto; CRON_SECRET deve estar na Vercel e fica no Supabase Vault. `/api/internal/waiting-alerts` exige Bearer e `?status=1` verifica o agendador e a última resposta HTTP. A tabela de requisições tem RLS e retenção de sete dias. A janela WhatsApp de 24 horas continua obrigatória; falhas são registradas em jobs/Atividade. Claims transacionais e intervalos persistidos impedem duplicação entre execuções concorrentes. Cada canal tem uma lista independente `alerts_phones` de até 20 telefones, normalizados e deduplicados (incluindo o formato brasileiro legado). A migração preserva o telefone da equipe como destino inicial dos canais existentes. Cada destinatário tem sua própria janela de 24 horas e job persistente. A fila de respostas/encaminhamentos não consome jobs de alertas. Até seis entregas são processadas por execução, com três envios paralelos; destinatários restantes seguem nas próximas verificações sem perda ou duplicação. Antes de enviar, o worker revalida o canal, destinatário, remetente e espera atual, cancelando alertas removidos, desativados ou já atendidos. Webhooks registram janelas individuais; mensagens de contatos cadastrados para alertas renovam a janela, sem criar casos no SAC ou conceder acesso à ponte. Atividade identifica canal e destinatário. Entregas interrompidas são marcadas incertas e não reenviadas imediatamente.
+
+## Respostas e anexos (15/10/2026)
+
+O editor permite emojis, seleção de um anexo por envio e gravação de áudio de até três minutos, com prévia e remoção. Texto e anexo são mensagens separadas. Instagram aceita imagens JPG/PNG, áudio, vídeo MP4/MOV e PDF; Messenger e WhatsApp têm formatos e limites próprios, mostrados no editor. Arquivos enviados ficam criptografados em reply_attachments/reply_attachment_parts, com upload em partes de 1 MB e acesso autenticado por atendimento. A Meta recebe um link assinado por até 15 minutos para a entrega.
+
+Imagens, áudio, vídeo e documentos recebidos são preservados a partir dos webhooks. O histórico usa uma rota autenticada para visualizar ou baixar, com suporte a ranges, PDFs em outra aba, múltiplos anexos e renovação de URLs quando a API da Meta disponibiliza. Links externos são restritos aos domínios de mídia da Meta; tokens não são encaminhados aos CDNs. Mídias temporárias ou expiradas podem exigir novo envio pelo cliente. A migração 202610150013_inbound_media recupera os metadados ainda disponíveis nos eventos antigos, sem criar novas mensagens ou envios.
+
+Validação: node --test tests/*.test.mjs em vercel-app; testes de interface tests/ui/reply-attachments-qa.cjs e tests/ui/loading-qa.cjs na raiz, com PLAYWRIGHT_MODULE apontando para Playwright. Em produção foram aceitos imagem, áudio WAV, vídeo MP4 e PDF para a conversa de teste do administrador.
+
+## WhatsApp por QR Code
+
+O canal WhatsApp aceita API oficial da Meta ou QR Code por aparelho vinculado. Em Canais de comunicação, escolha a forma de conexão ao adicionar o canal. Canais existentes permanecem oficiais. O modo QR requer o serviço persistente de [whatsapp-qr-gateway](../whatsapp-qr-gateway/README.md), com sessão criptografada, callback assinado e variáveis WHATSAPP_QR_URL/WHATSAPP_QR_SECRET no backend. A fila, atribuição, histórico, CRM, anexos e permissões são compartilhados. Nenhuma nova migração SQL é necessária. Testes não substituem o pareamento real e a validação do número após a implantação.

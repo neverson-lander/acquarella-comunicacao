@@ -17,7 +17,9 @@ export function databaseOptions() {
     max: 3,
     idleTimeoutMillis: 10000,
     connectionTimeoutMillis: 15000,
-    ssl: { rejectUnauthorized: true, ...(process.env.POSTGRES_CA ? { ca: process.env.POSTGRES_CA } : {}) },
+    // Only the explicitly selected, unpublished Docker database uses plain TCP.
+    ssl: process.env.DEPLOYMENT_MODE==='standalone' && url.hostname==='postgres' && (!url.port||url.port==='5432')
+      ? false : { rejectUnauthorized: true, ...(process.env.POSTGRES_CA ? { ca: process.env.POSTGRES_CA } : {}) },
   };
 }
 

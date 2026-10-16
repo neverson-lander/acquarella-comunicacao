@@ -1,0 +1,3 @@
+.qr-dialog{width:min(520px,calc(100vw - 32px));border:0;border-radius:16px;padding:24px;color:inherit;box-shadow:0 24px 80px #0003}
+.qr-dialog::backdrop{background:#0f172a88}.qr-dialog>p{line-height:1.6}.qr-dialog [data-qr-image]{display:block;margin:16px auto;max-width:100%;height:auto}.qr-dialog [data-qr-image][hidden]{display:none}
+[data-meta-fields][hidden],[data-whatsapp-transport][hidden],[data-qr-note][hidden]{display:none!important}

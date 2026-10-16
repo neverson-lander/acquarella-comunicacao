@@ -1,4 +1,5 @@
 import { sameWhatsAppPhone } from './whatsapp-phone.mjs';
+import {forwardingPeriodAllows} from '../public/service-hours-policy.mjs';
 
 export function signedReply(operator, body) {
   const name = String(operator || '').replace(/\s+/g, ' ').trim().slice(0, 120);
@@ -18,17 +19,19 @@ export function inboundWhatsApp(value) {
       body: m.text?.body || m.button?.text || m.interactive?.button_reply?.title || m.interactive?.list_reply?.title ||
         (m[m.type]?.caption ? `[${captions[m.type] || 'Anexo'}] ${m[m.type].caption}` : `[${captions[m.type] || 'Mensagem não textual'} recebida no WhatsApp]`),
       kind:m.type||'text',
-      media:['image','audio','sticker'].includes(m.type)&&/^\d+$/.test(m[m.type]?.id||'')?{id:String(m[m.type].id),mime_type:String(m[m.type].mime_type||'').slice(0,100),caption:String(m[m.type].caption||'').slice(0,2000),voice:!!m[m.type].voice}:null,
+      media:m.qrMedia||(['image','audio','sticker','video','document'].includes(m.type)&&/^\d+$/.test(m[m.type]?.id||'')?{id:String(m[m.type].id),mime_type:String(m[m.type].mime_type||'').slice(0,100),caption:String(m[m.type].caption||'').slice(0,2000),name:String(m[m.type].filename||'').slice(0,180),voice:!!m[m.type].voice}:null),
       reaction:m.type==='reaction'&&typeof m.reaction?.message_id==='string'?{target:m.reaction.message_id.slice(0,500),emoji:typeof m.reaction.emoji==='string'?m.reaction.emoji.slice(0,32):''}:null,
       timestamp: (Number(m.timestamp) || Math.floor(Date.now() / 1000)) * 1000,
     };
   });
 }
 
-export function forwardingAllowed(origin, bridge, customer, teamPhone) {
-  return !!(origin.forwarding_enabled && origin.bridge === bridge?.id && bridge?.channel === 'whatsapp' &&
+export function forwardingPhone(origin,teamPhone){return origin.forwarding_phone||teamPhone;}
+export function forwardingAllowed(origin, bridge, customer, teamPhone, timestamp=Date.now()) {
+  return !!(origin.forwarding_enabled && (origin.bridge||(origin.channel==='whatsapp'&&origin.forwarding_phone?origin.id:null)) === bridge?.id && bridge?.channel === 'whatsapp' &&
     origin.tenant === bridge.tenant && bridge.mode === 'live' &&
-    !(origin.channel === 'whatsapp' && sameWhatsAppPhone(customer, teamPhone)));
+    !(origin.channel === 'whatsapp' && sameWhatsAppPhone(customer, forwardingPhone(origin,teamPhone))) &&
+    (timestamp===null||forwardingPeriodAllows(origin,timestamp)));
 }
 
 export async function customerProfile(account, secrets, customer, fetcher = fetch) {

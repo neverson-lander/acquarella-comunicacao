@@ -12,3 +12,4 @@ tmp/
 dist/
 coverage/
 production-site/
+vercel-app/supabase/.temp/

@@ -1,0 +1,8 @@
+{
+  "name": "acquarella-whatsapp-qr",
+  "private": true,
+  "type": "module",
+  "scripts": {"start":"node --env-file-if-exists=.env server.mjs","test":"node --test tests/*.test.mjs"},
+  "engines": {"node":">=24"},
+  "dependencies": {"baileys":"7.0.0-rc14","pino":"9.6.0","qrcode":"1.5.4"}
+}

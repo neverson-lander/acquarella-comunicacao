@@ -1,0 +1,70 @@
+
+/* Shared visual language for received/sent attachments and the reply editor. */
+.message-media svg,.composer-tools svg,.attachment-remove svg,.composer-attachment-thumb svg,.message-notice svg{width:18px;height:18px;flex:none}
+.inbox-shell .message:has(.attachment-card){padding:10px;max-width:min(86%,390px)}
+.attachment-card{width:320px;max-width:100%;background:rgba(255,255,255,.78);border:1px solid #d8e6e9;border-radius:12px;overflow:hidden;margin:6px 0}
+.attachment-card+.attachment-card{margin-top:10px}
+.attachment-card-heading{display:flex;gap:10px;align-items:center;padding:12px;min-width:0}
+.attachment-type-icon{display:grid;place-items:center;width:36px;height:40px;background:#e9f3f5;color:#17627a;border-radius:9px;flex:none}
+.attachment-card-heading>div{min-width:0;flex:1}
+.attachment-card-heading strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;font-weight:600;color:#174657;line-height:1.5}
+.attachment-card-heading small{display:block;color:#68828c;font-size:10px;margin-top:2px}
+.attachment-card-preview{padding:0 10px 10px}
+.attachment-card-preview:empty{display:none}
+.message-media .attachment-card-preview img{display:block;width:100%;max-height:280px;object-fit:contain;border-radius:8px;background:#edf4f5}
+.message-media .attachment-card-preview video{display:block;width:100%;max-height:280px;border-radius:8px;background:#142c35}
+.message-media .attachment-card-preview audio{display:block;width:100%;max-width:100%;height:42px;margin:0}
+.attachment-card-preview>a:not(:has(img)){display:flex;align-items:center;min-height:50px;padding:12px;border:1px dashed #c9dce0;border-radius:8px;color:#26596a;font-size:12px;overflow-wrap:anywhere;text-decoration:none;background:#f6fafb}
+.attachment-card-actions{display:flex;gap:0;border-top:1px solid #e0ebed;background:#f7fafb}
+.attachment-card-actions a{display:flex;align-items:center;justify-content:center;gap:6px;flex:1;min-height:38px;font-size:11px;color:#246077;text-decoration:none;font-weight:600}
+.attachment-card-actions a+a{border-left:1px solid #e0ebed}
+.attachment-card-actions a:hover{background:#e8f1f4}
+.attachment-card-actions a:focus-visible,.composer-tool:focus-visible,.attachment-remove:focus-visible{outline:2px solid #267e99;outline-offset:-3px}
+.inbox-shell .attachment-card .media-error{padding:10px;margin:0;font-size:11px;background:#fff4f2;color:#9d4540}
+.message-media [hidden]{display:none!important}
+.message-notice{display:flex;align-items:flex-start;gap:8px;color:#6c7d85;font-size:12px;line-height:1.6;padding:5px 0;max-width:340px}
+.inbox-shell .message:has(.message-notice){background:#f2f5f6;border-style:dashed;box-shadow:none}
+/* Keep the text field first; all actions sit together below it. */
+.inbox-shell .composer{border:1px solid #cadde3;border-radius:14px;background:#fff;box-shadow:0 3px 12px #174f6210;overflow:visible;position:relative;max-height:none;transition:border-color .15s,box-shadow .15s}
+.inbox-shell .composer:focus-within{border-color:#4a95a9;box-shadow:0 0 0 3px #4a95a914}
+.inbox-shell .composer .reply-label{padding:9px 14px 0;border:0;font-size:10px;font-weight:600;color:#60818c}
+.inbox-shell .composer textarea{min-height:70px;height:70px;max-height:150px;padding:11px 14px 6px;font-size:13px;line-height:1.65;resize:vertical;outline:0;box-shadow:none;margin:0;display:block}
+.inbox-shell .composer .composer-bottom{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-top:1px solid #edf2f4;gap:8px}
+.composer-tools{display:flex;align-items:center;gap:2px;position:relative;min-width:0}
+.composer-tools input[hidden]{display:none!important}
+.composer-tool{display:inline-flex;align-items:center;justify-content:center;gap:6px;background:transparent;color:#557985;border:0;border-radius:8px;padding:8px;min-height:36px;font-size:11px;white-space:nowrap;cursor:pointer}
+.composer-tool:hover:not(:disabled){background:#edf5f7;color:#15546c}
+.composer-tool:disabled{opacity:.42;cursor:default}
+.composer .composer-bottom .primary{border-radius:9px;min-height:36px;min-width:100px;padding:9px 13px;font-size:12px;white-space:nowrap}
+.composer .composer-operator{display:block;padding:0 14px 6px;color:#81959d;font-size:9px;line-height:1.5}
+.composer-meta{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 14px 8px;font-size:9px;color:#81949d}
+.composer-counter{font-variant-numeric:tabular-nums;white-space:nowrap}
+.composer-counter.near-limit{color:#b24751;font-weight:600}
+.composer-limits{position:relative}
+.composer-limits summary{cursor:pointer;font-size:9px;list-style:none;color:#728c97}
+.composer-limits summary:before{content:'ⓘ ';font-size:11px}
+.composer-limits p{position:absolute;bottom:18px;left:0;width:230px;padding:12px;border:1px solid #cfdfe4;background:#fff;box-shadow:0 6px 24px #1e4e6220;border-radius:10px;font-size:11px;line-height:1.6;z-index:5;margin:0}
+.emoji-picker{position:absolute;left:0;bottom:46px;display:grid;grid-template-columns:repeat(8,1fr);gap:2px;padding:9px;border:1px solid #d4e2e5;border-radius:12px;background:#fff;box-shadow:0 8px 28px #174b6326;width:290px;max-width:75vw;z-index:8}
+.emoji-picker[hidden]{display:none}
+.emoji-picker button{background:transparent;border:0;font-size:23px;padding:5px;cursor:pointer;border-radius:6px}
+.emoji-picker button:hover,.emoji-picker button:focus-visible{background:#edf5f7}
+.attachment-preview{margin:10px 12px 0;padding:10px;background:#f3f8fa;border:1px solid #dbe8ec;border-radius:10px;min-width:0}
+.attachment-preview:empty{display:none}
+.composer-attachment{display:flex;gap:10px;align-items:center;min-width:0}
+.composer-attachment-thumb{width:58px;height:52px;flex:none;display:grid;place-items:center;overflow:hidden;border-radius:7px;background:#e3eef2;color:#3a778d}
+.composer-attachment-thumb svg{width:26px;height:26px}
+.composer-attachment-thumb img,.composer-attachment-thumb video{width:100%;height:100%;max-height:52px;object-fit:cover}
+.composer-attachment-info{min-width:0;flex:1}
+.composer-attachment-info strong{display:block;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:11px;color:#2e5b6d;line-height:1.6}
+.file-status{display:block;font-size:10px;color:#72909d;margin-top:2px}
+.composer-attachment-info progress{width:100%;height:5px;margin-top:6px;accent-color:#267f97}
+.composer-attachment-info progress[hidden]{display:none}
+.attachment-remove{display:inline-flex;align-items:center;justify-content:center;background:transparent;border:0;border-radius:7px;min-height:32px;min-width:32px;padding:6px;color:#6a8793;font-size:11px;cursor:pointer}
+.attachment-remove:hover{background:#e3edf1;color:#b54459}
+.attachment-caption-note{display:block;font-size:9px;color:#7c929c;margin-top:6px;line-height:1.5}
+.attachment-preview>audio{width:100%;height:36px;display:block;margin-top:8px}
+.attachment-preview .recording-status{font-size:12px;color:#b34256;line-height:1.6;margin:0}
+.is-recording [data-record]{color:#b34256;background:#fff0f2}
+.composer.drag-over{border:2px dashed #298ba2;background:#eef8fa}
+.composer.drag-over:after{content:'Solte o arquivo para anexar';position:absolute;inset:0;display:grid;place-items:center;border-radius:12px;background:#effafdF2;color:#186379;font-weight:600;pointer-events:none;z-index:10}
+@media(max-width:650px){.inbox-shell .message:has(.attachment-card){max-width:92%;padding:8px}.attachment-card{width:270px}.attachment-card-heading{padding:9px}.attachment-card-heading strong{font-size:11px}.attachment-card-preview{padding:0 8px 8px}.message-media .attachment-card-preview img,.message-media .attachment-card-preview video{max-height:210px}.inbox-shell .composer .composer-bottom{padding:6px;gap:3px}.composer-tool{padding:7px;gap:4px}.composer-tool span{font-size:0}.composer-tool[data-record] span{display:none}.composer-tools svg{width:19px;height:19px}.composer .composer-bottom .primary{min-width:88px;font-size:11px;padding:8px 10px}.inbox-shell .composer textarea{height:60px;min-height:60px;font-size:13px}.composer .composer-operator{font-size:8px}.attachment-preview{margin:8px 8px 0;padding:8px}.attachment-caption-note{font-size:8px}.composer-attachment-thumb{width:46px;height:44px}.composer-meta{padding:0 10px 7px}.emoji-picker{left:0;width:270px}.is-recording .attachment-preview{max-height:100px;overflow:auto}}

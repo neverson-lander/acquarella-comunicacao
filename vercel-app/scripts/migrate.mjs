@@ -1,4 +1,5 @@
 import {configureAlertScheduler} from '../lib/alert-scheduler.mjs';
+import {recoverInboundMedia} from '../lib/recover-inbound-media.mjs';
 import { readFile } from 'node:fs/promises';
 import { gunzipSync } from 'node:zlib';
 import { createHash, randomBytes, createCipheriv, createDecipheriv } from 'node:crypto';
@@ -6,7 +7,7 @@ import assert from 'node:assert/strict';
 import { pool } from '../lib/database.mjs';
 
 const tables = ['tenants', 'users', 'accounts', 'conversations', 'messages', 'events', 'jobs', 'audit'];
-const protectedTables = [...tables, 'bridge_windows', 'receipts', 'crm_contacts', 'crm_catalog', 'crm_opportunities', 'crm_opportunity_tags', 'crm_touches', 'crm_ads', 'crm_events', 'crm_history', 'crm_settings', 'attendance_history', 'crm_pending_referrals', 'alert_scheduler_requests', 'whatsapp_reactions'];
+const protectedTables = [...tables, 'bridge_windows', 'receipts', 'crm_contacts', 'crm_catalog', 'crm_opportunities', 'crm_opportunity_tags', 'crm_touches', 'crm_ads', 'crm_events', 'crm_history', 'crm_settings', 'attendance_history', 'crm_pending_referrals', 'alert_scheduler_requests', 'whatsapp_reactions','reply_attachments','reply_attachment_parts'];
 const client = await pool.connect();
 try {
   await client.query('begin');
@@ -95,6 +96,11 @@ try {
     await client.query(await readFile(new URL('../supabase/migrations/202609300007_meta_attribution.sql',import.meta.url),'utf8'));
     await client.query('insert into app_migrations(id) values($1)',['202609300007_meta_attribution']);
   }
+  const outboundMigration=await client.query('select id from app_migrations where id=$1',['202610150012_outbound_attachments']);
+  if(!outboundMigration.rowCount){
+    await client.query(await readFile(new URL('../supabase/migrations/202610150012_outbound_attachments.sql',import.meta.url),'utf8'));
+    await client.query('insert into app_migrations(id) values($1)',['202610150012_outbound_attachments']);
+  }
   const users = await client.query('select id from users where role=$1 limit 1', ['admin']);
   if (!users.rowCount) throw new Error('Administrador não configurado; publicação interrompida.');
   const encryptionKey = Buffer.from(process.env.APP_ENCRYPTION_KEY || '', 'base64');
@@ -112,6 +118,30 @@ try {
   };
   for (const account of (await client.query('select secret from accounts')).rows) {
     decryptSecret(account.secret);
+  }
+  const inboundMediaMigration=await client.query('select id from app_migrations where id=$1',['202610150013_inbound_media']);
+  if(!inboundMediaMigration.rowCount){
+    const recovered=await recoverInboundMedia(client,decryptSecret);
+    await client.query('insert into app_migrations(id) values($1)',['202610150013_inbound_media']);
+    console.log(`Anexos recebidos: ${recovered} mensagens recuperadas dos webhooks existentes.`);
+  }
+  const sharedMediaMigration=await client.query('select id from app_migrations where id=$1',['202610150014_shared_media']);
+  if(!sharedMediaMigration.rowCount){
+    const recovered=await recoverInboundMedia(client,decryptSecret);
+    await client.query('insert into app_migrations(id) values($1)',['202610150014_shared_media']);
+    console.log(`Mídias compartilhadas: ${recovered} mensagens recuperadas.`);
+  }
+  const unsupportedMigration=await client.query('select id from app_migrations where id=$1',['202610150015_unsupported_media']);
+  if(!unsupportedMigration.rowCount){
+    const recovered=await recoverInboundMedia(client,decryptSecret);
+    await client.query('insert into app_migrations(id) values($1)',['202610150015_unsupported_media']);
+    console.log(`Avisos de conteúdo não disponibilizado pela Meta: ${recovered} mensagens atualizadas.`);
+  }
+  const deletedMigration=await client.query('select id from app_migrations where id=$1',['202610150016_deleted_messages']);
+  if(!deletedMigration.rowCount){
+    const recovered=await recoverInboundMedia(client,decryptSecret);
+    await client.query('insert into app_migrations(id) values($1)',['202610150016_deleted_messages']);
+    console.log(`Avisos de exclusão de mensagens: ${recovered} registros corrigidos.`);
   }
   const webhookConfigured = await client.query('select id from app_migrations where id=$1', ['20260929_whatsapp_webhook']);
   if (!webhookConfigured.rowCount) {
@@ -170,6 +200,11 @@ try {
   const rls = await client.query('select relname,relrowsecurity from pg_class where relnamespace=$1::regnamespace and relname = any($2::text[])', ['public', protectedTables]);
   assert.equal(rls.rows.length, protectedTables.length);
   assert.ok(rls.rows.every(r => r.relrowsecurity), 'Todas as tabelas devem usar RLS.');
+  const serviceHoursMigration='20261016034928_channel_service_hours';
+  if(!(await client.query('select id from app_migrations where id=$1',[serviceHoursMigration])).rowCount){
+    await client.query(await readFile(new URL('../supabase/migrations/'+serviceHoursMigration+'.sql',import.meta.url),'utf8'));
+    await client.query('insert into app_migrations(id) values($1)',[serviceHoursMigration]);
+  }
   await configureAlertScheduler(client);
   await client.query('commit');
   console.log('Agendador de alertas ativo: verificação a cada minuto.');

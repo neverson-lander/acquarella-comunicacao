@@ -24,6 +24,7 @@ export async function configureAlertScheduler(client) {
 }
 
 export async function alertSchedulerStatus(pool) {
+  if(process.env.DEPLOYMENT_MODE==='standalone')return globalThis.__acquarellaSchedulerStatus||{scheduled:false,schedule:'* * * * *',latest:null};
   const job=(await pool.query('select active,schedule from cron.job where jobname=$1',['acquarella-waiting-alerts'])).rows[0];
   const response=(await pool.query(`select r.created,n.status_code,n.timed_out,n.error_msg
     from alert_scheduler_requests r left join net._http_response n on n.id=r.id
