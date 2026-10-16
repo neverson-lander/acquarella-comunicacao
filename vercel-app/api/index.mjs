@@ -19,6 +19,7 @@ import { createCrm } from '../lib/crm-store.mjs';
 import {createAttendance} from '../lib/attendance-store.mjs';
 import {seesAttendance,worksAttendance,managesAttendance,canReplyAttendance} from '../lib/attendance-policy.mjs';
 import {createWaitingAlerts,alertSettings,authorizedAlertJob} from '../lib/waiting-alerts.mjs';
+import {createContactDirectory} from '../lib/contact-directory.mjs';
 import {knownWhatsAppRecipient} from '../lib/whatsapp-phone.mjs';
 
 const IDS={instagram:'c3d707af-29a4-4e26-b8fd-ce271e7d33ee',messenger:'7b4a8a24-5bd9-4e57-bf2e-38871f3a18e7',whatsapp:'8ad045e9-798f-40cf-ab37-0ee15d26a85e'};
@@ -46,12 +47,13 @@ async function getConversation(u,cid){if(!/^[0-9a-f-]{36}$/i.test(cid))fail('Ate
 const admin=u=>{if(u.role!=='admin')fail('Apenas administradores podem realizar esta ação.',403);};
 async function validateForwardingTarget(user,account,bridge,destination){
   const sender=bridge?await getAccount(user,bridge):account.channel==='whatsapp'?account:null;
-  if(!sender||sender.channel!=='whatsapp'||sender.mode!=='live'||account.mode!=='live')fail('O canal e a conta WhatsApp de envio precisam estar ativos.');
+  if(!sender||sender.enabled===false||account.enabled===false||sender.channel!=='whatsapp'||sender.mode!=='live'||account.mode!=='live')fail('O canal e a conta WhatsApp de envio precisam estar ativos.');
   if(usesQr(sender)){const status=await qrClient.status(sender);if(status.phone&&sameWhatsAppPhone(status.phone,destination))fail('O destino deve ser diferente do número conectado a esta conta WhatsApp.');}
   return sender;
 }
 const audit=(tenant,action)=>run('insert into audit(id,tenant,action,created) values($1,$2,$3,$4)',[id(),tenant,action,now()]);
 async function sendMeta(a,recipient,body,attachmentId,idempotencyKey){
+  if(a.enabled===false)throw Object.assign(Error('Canal desativado.'),{status:409,definite:true});
   if(a.channel==='whatsapp'){const tenant=await one('select phone from tenants where id=$1',[a.tenant]);recipient=knownWhatsAppRecipient(recipient,tenant?.phone);}
   const media=attachmentId?await replyAttachments.delivery(attachmentId):null;
   if(usesQr(a))return qrClient.send(a,recipient,body,media?{url:media.url,kind:media.item.kind,mime:media.item.mime,name:media.item.name}:null,idempotencyKey);
@@ -97,7 +99,7 @@ async function drainJobs(tenant){
   for(const job of jobs){
     const a=await one('select * from accounts where id=$1',[job.account]);
     try{
-      if(!a||a.mode!=='live')throw Object.assign(Error('Conta desativada para envios reais.'),{definite:true});
+      if(!a||a.mode!=='live'||a.enabled===false)throw Object.assign(Error('Conta desativada para envios reais.'),{definite:true});
       const c=await one('select * from conversations where id=$1',[job.conversation]);
       if(job.kind==='reply'&&needsWindow(a)&&now()-Number(c.last_inbound)>86400000)throw Object.assign(Error('Janela de resposta de 24 horas encerrada.'),{definite:true});
       if(job.kind==='forward'){
@@ -135,6 +137,7 @@ async function seedAccounts(tenant){
 async function userFrom(request){const sid=(request.headers.get('cookie')||'').match(/(?:^|; )session=([^;]+)/)?.[1]||'';if(!sid)return null;return one('select u.* from sessions s join users u on u.id=s."user" where s.id=$1 and s.expires>$2',[digest(sid),now()]);}
 const safeAccount=a=>{const s=open(a.secret);return {...a,secret:undefined,transport:s.transport||'meta',qrAvailable:!!process.env.WHATSAPP_QR_URL,configured:s.transport==='qr'?!!process.env.WHATSAPP_QR_URL:!!s.token,version:s.version||'v26.0',verifyToken:s.verifyToken,webhook:`/webhooks/meta/${a.id}`};};
 const crm=createCrm({pool,permitted,open,seal,now});
+const contacts=createContactDirectory({pool,permitted,now});
 const processWaitingAlerts=createWaitingAlerts({pool,send:(a,to,body,key)=>sendMeta(a,to,body,null,key),now,requiresWindow:needsWindow});
 const attendance=createAttendance({pool,permitted,now});
 const whatsappContent=createWhatsAppContent({pool});
@@ -145,7 +148,7 @@ async function webhook(request,url,path){
   if(a&&usesQr(a))fail('Este canal recebe eventos pelo serviço QR.',404);
   if(a)s=open(a.secret);else if(aid===IDS.instagram){a={id:aid,external:process.env.INSTAGRAM_ACCOUNT_ID||''};s={verifyToken:process.env.INSTAGRAM_VERIFY_TOKEN||'',appSecret:process.env.META_APP_SECRET||''};}else if(aid===IDS.messenger){a={id:aid,external:process.env.MESSENGER_PAGE_ID||''};s={verifyToken:process.env.MESSENGER_VERIFY_TOKEN||'',appSecret:process.env.META_APP_SECRET||''};}else fail('Não encontrado.',404);
   if(request.method==='GET'){if(url.searchParams.get('hub.mode')==='subscribe'&&s.verifyToken===url.searchParams.get('hub.verify_token'))return new Response(url.searchParams.get('hub.challenge')||'');fail('Verificação recusada.',403);}
-  if(request.method!=='POST')fail('Método inválido.',405);const raw=await request.text();if(raw.length>1048576)fail('Conteúdo muito grande.',413);const signature=request.headers.get('x-hub-signature-256')||'',expected='sha256='+createHmac('sha256',s.appSecret).update(raw).digest('hex');if(signature.length!==expected.length||!timingSafeEqual(Buffer.from(signature),Buffer.from(expected)))fail('Assinatura inválida.',403);let payload;try{payload=JSON.parse(raw);}catch{fail('JSON inválido.');}if(!a.tenant)return json({received:true});const eid=digest(a.id+raw),fresh=await one('insert into events(id,tenant,payload,state,error,created) values($1,$2,$3,$4,$5,$6) on conflict(id) do nothing returning id',[eid,a.tenant,payload,'received','',now()]);if(fresh){await processInbound(a,payload);await run("update events set state='done' where id=$1",[eid]);await drainJobs(a.tenant);}return json({received:true});
+  if(request.method!=='POST')fail('Método inválido.',405);const raw=await request.text();if(raw.length>1048576)fail('Conteúdo muito grande.',413);const signature=request.headers.get('x-hub-signature-256')||'',expected='sha256='+createHmac('sha256',s.appSecret).update(raw).digest('hex');if(signature.length!==expected.length||!timingSafeEqual(Buffer.from(signature),Buffer.from(expected)))fail('Assinatura inválida.',403);let payload;try{payload=JSON.parse(raw);}catch{fail('JSON inválido.');}if(!a.tenant||a.enabled===false)return json({received:true,ignored:a.enabled===false});const eid=digest(a.id+raw),fresh=await one('insert into events(id,tenant,payload,state,error,created) values($1,$2,$3,$4,$5,$6) on conflict(id) do nothing returning id',[eid,a.tenant,payload,'received','',now()]);if(fresh){await processInbound(a,payload);await run("update events set state='done' where id=$1",[eid]);await drainJobs(a.tenant);}return json({received:true});
 }
 async function api(request,url,path){
   const deliveryPath=path.match(/^\/api\/attachments\/([0-9a-f-]{36})\/delivery$/i);
@@ -198,18 +201,31 @@ async function api(request,url,path){
   const diagnosticPath=path.match(/^\/api\/accounts\/([^/]+)\/diagnostics$/);
   const attendancePath=path.match(/^\/api\/conversations\/([^/]+)\/(claim|transfer)$/);
   if(attendancePath&&request.method==='POST'){const c=await getConversation(user,attendancePath[1]);return json(attendancePath[2]==='claim'?await attendance.claim(user,c.id):await attendance.transfer(user,c.id,input));}
+  if(path.startsWith('/api/contacts')&&['GET','POST'].includes(request.method))return json(await contacts.route(user,path,request.method==='POST'?input:undefined,url.searchParams));
   if(path==='/api/crm/state'&&request.method==='GET')return json(await crm.state(user));
   if(path.startsWith('/api/crm/')&&request.method==='POST')return json(await crm.route(user,path,input));
   const qrPath=path.match(/^\/api\/accounts\/([^/]+)\/qr(?:\/(connect|disconnect))?$/);
-  if(qrPath){admin(user);const account=await getAccount(user,qrPath[1]);if(!usesQr(account)||account.mode!=='live')fail('Selecione um canal WhatsApp por QR Code ativo.');const action=qrPath[2];if((!action&&request.method!=='GET')||(action&&request.method!=='POST'))fail('Método inválido.',405);const result=await qrClient[action||'status'](account);if(action)await audit(user.tenant,`Conexão QR de ${account.name}: ${action==='connect'?'iniciada':'desconectada'} por ${user.name}.`);return json(result);}
+  if(qrPath){admin(user);const account=await getAccount(user,qrPath[1]);if(!usesQr(account)||account.mode!=='live')fail('Selecione um canal WhatsApp por QR Code ativo.');const action=qrPath[2];if(action==='connect'&&account.enabled===false)fail('Ative o canal antes de conectar o WhatsApp.',409);if((!action&&request.method!=='GET')||(action&&request.method!=='POST'))fail('Método inválido.',405);const result=await qrClient[action||'status'](account);if(action)await audit(user.tenant,`Conexão QR de ${account.name}: ${action==='connect'?'iniciada':'desconectada'} por ${user.name}.`);return json(result);}
   if(diagnosticPath&&request.method==='GET'){admin(user);const account=await getAccount(user,diagnosticPath[1]);if(usesQr(account))return json(await qrClient.status(account));const result=await inspectMetaAccount(account,open(account.secret));if(account.channel==='whatsapp'){const tenant=await one('select phone from tenants where id=$1',[user.tenant]);const window=await one('select seen from bridge_windows where account=$1 and phone=$2',[account.id,tenant.phone]);result.teamWindow=inspectWhatsAppWindow(window?.seen);}return json(result);}
+  const activationPath=path.match(/^\/api\/accounts\/([^/]+)\/activation$/);
+  if(activationPath&&request.method==='POST'){
+    admin(user);const account=await getAccount(user,activationPath[1]);if(typeof input.enabled!=='boolean')fail('Estado do canal inválido.');
+    if(account.enabled===input.enabled)return json({ok:true});
+    await run('update accounts set enabled=$2,receive_after=case when $2 then $3 else receive_after end where id=$1',[account.id,input.enabled,Math.floor(now()/1000)*1000]);
+    if(!input.enabled){
+      await run("update messages set state='failed' where id in (select message from jobs where tenant=$1 and state='pending' and (account=$2 or alert_source=$2 or conversation in (select id from conversations where account=$2)))",[user.tenant,account.id]);
+      await run("update jobs set state='cancelled',error='Canal desativado.' where tenant=$1 and state='pending' and (account=$2 or alert_source=$2 or conversation in (select id from conversations where account=$2))",[user.tenant,account.id]);
+    }
+    let warning='';if(usesQr(account)&&account.mode==='live')try{await qrClient[input.enabled?'resume':'pause'](account);}catch{warning='O estado do canal foi salvo. Confira a conexão do serviço WhatsApp.';}
+    await audit(user.tenant,`Canal ${account.name} ${input.enabled?'ativado':'desativado'} por ${user.name}.`);return json({ok:true,warning});
+  }
   const alertsPath=path.match(/^\/api\/accounts\/([^/]+)\/alerts$/);
   if(alertsPath&&request.method==='POST'){
     admin(user);const account=await getAccount(user,alertsPath[1]),settings=alertSettings(input,account);
     const bridge=input.bridge===undefined?account.bridge:String(input.bridge||'')||null;
     const sender=bridge?await getAccount(user,bridge):account.channel==='whatsapp'?account:null;
     if(bridge&&sender.channel!=='whatsapp')fail('Selecione uma conta WhatsApp para os alertas.');
-    if(settings.enabled&&(!sender||sender.mode!=='live'))fail('Selecione uma conta WhatsApp em API real para enviar os alertas.');
+    if(settings.enabled&&(!sender||sender.enabled===false||sender.mode!=='live'))fail('Selecione uma conta WhatsApp em API real para enviar os alertas.');
     if(account.forwarding_enabled&&!bridge&&account.channel!=='whatsapp')fail('Mantenha uma conta WhatsApp enquanto o encaminhamento estiver ativo.');
     await run('update accounts set bridge=$2,alerts_enabled=$3,queue_alert_minutes=$4,assigned_alert_minutes=$5,alerts_phones=$6 where id=$1',[account.id,bridge,settings.enabled,settings.queue,settings.assigned,settings.phones]);
     await audit(user.tenant,`Alertas de ${account.name} ${settings.enabled?'ativados':'desativados'} por ${user.name}: fila ${settings.queue} min, atribuídos ${settings.assigned} min.`);
@@ -228,7 +244,7 @@ async function api(request,url,path){
       if(!settings.phone)fail('Informe o telefone WhatsApp de destino.');
       await validateForwardingTarget(user,account,bridge,settings.phone);
     }
-    if(account.alerts_enabled&&(!sender||sender.mode!=='live'))fail('Mantenha uma conta WhatsApp ativa para os alertas.');
+    if(account.alerts_enabled&&(!sender||sender.enabled===false||sender.mode!=='live'))fail('Mantenha uma conta WhatsApp ativa para os alertas.');
     await run('update accounts set service_hours=$2,forwarding_phone=$3,forwarding_period=$4,forwarding_enabled=$5,bridge=$6 where id=$1',[account.id,JSON.stringify(settings.hours),settings.phone,settings.period,input.forwardingEnabled,bridge]);
     await run("update jobs set state='cancelled',error='Configuração de encaminhamento alterada.' where tenant=$1 and kind='forward' and state='pending' and conversation in (select id from conversations where account=$2)",[user.tenant,account.id]);
     await audit(user.tenant,`Horários e encaminhamento de ${account.name} atualizados por ${user.name}.`);
@@ -237,7 +253,7 @@ async function api(request,url,path){
   const contactPath=path.match(/^\/api\/conversations\/([^/]+)\/contact$/);
   if(contactPath&&request.method==='POST'){if(user.role==='viewer')fail('Seu perfil permite apenas visualizar.',403);const c=await getConversation(user,contactPath[1]);if(!worksAttendance(user,c))fail('Assuma o atendimento antes de identificar o cliente.',403);if(input.action==='refresh'){const a=await getAccount(user,c.account),identity=await customerProfile(a,open(a.secret),c.customer);if(!identity.name&&!identity.username)fail('A Meta não disponibilizou o nome deste cliente. Você pode identificá-lo manualmente.',422);await run("update conversations set name=case when name_manual then name else $1 end,username=$2,profile_checked=$3 where id=$4",[identity.name||identity.username,identity.username||'',now(),c.id]);}else{await run('update conversations set name=$1,name_manual=true where id=$2',[required(input.name,'Nome do cliente'),c.id]);}return json({ok:true});}
   if(path==='/api/logout'&&request.method==='POST'){await run('delete from sessions where id=$1',[sh]);return json({ok:true},200,{'set-cookie':'session=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0'});}
-  if(path==='/api/state'&&request.method==='GET'){const snapshotTime=now();let accounts=(await rows('select * from accounts where tenant=$1',[user.tenant])).filter(a=>permitted(user,a)),allowed=new Set(accounts.map(a=>a.id));const conversations=(await rows('select * from conversations where tenant=$1 order by updated desc',[user.tenant])).filter(c=>allowed.has(c.account)&&seesAttendance(user,c));for(const c of conversations){c.messages=await rows("select * from messages where conversation=$1 and kind<>'reaction' order by created",[c.id]);const reactions=await whatsappContent.reactions(c);for(const m of c.messages)m.reactions=reactions.filter(r=>r.target_external===m.external||c.account+':'+r.target_external===m.external);c.attendance_history=await rows('select * from attendance_history where conversation=$1 and tenant=$2 order by created desc limit 50',[c.id,user.tenant]);c.assignee_name=c.assigned_to?(await one('select name from users where id=$1',[c.assigned_to]))?.name:null;}return json({server_time:snapshotTime,user:{id:user.id,name:user.name,email:user.email,role:user.role},tenant:await one('select * from tenants where id=$1',[user.tenant]),accounts:accounts.map(a=>user.role==='admin'?safeAccount(a):{id:a.id,name:a.name,channel:a.channel,mode:a.mode,bridge:a.bridge,forwarding_enabled:a.forwarding_enabled,service_hours:a.service_hours,forwarding_phone:a.forwarding_phone,forwarding_period:a.forwarding_period}),conversations,users:user.role==='admin'?await rows('select id,name,email,role,accounts from users where tenant=$1',[user.tenant]):[],audit:user.role==='admin'?await rows('select * from audit where tenant=$1 order by created desc limit 50',[user.tenant]):[],jobs:user.role==='admin'?await rows('select j.id,j.kind,j.state,j.error,j.created,j.recipient,a.name as source_name from jobs j left join accounts a on a.id=j.alert_source and a.tenant=j.tenant where j.tenant=$1 order by j.created desc limit 50',[user.tenant]):[]});}
+  if(path==='/api/state'&&request.method==='GET'){const snapshotTime=now();let accounts=(await rows('select * from accounts where tenant=$1',[user.tenant])).filter(a=>permitted(user,a)),allowed=new Set(accounts.map(a=>a.id));const conversations=(await rows('select * from conversations where tenant=$1 order by updated desc',[user.tenant])).filter(c=>allowed.has(c.account)&&seesAttendance(user,c));for(const c of conversations){c.messages=await rows("select * from messages where conversation=$1 and kind<>'reaction' order by created",[c.id]);const reactions=await whatsappContent.reactions(c);for(const m of c.messages)m.reactions=reactions.filter(r=>r.target_external===m.external||c.account+':'+r.target_external===m.external);c.attendance_history=await rows('select * from attendance_history where conversation=$1 and tenant=$2 order by created desc limit 50',[c.id,user.tenant]);c.assignee_name=c.assigned_to?(await one('select name from users where id=$1',[c.assigned_to]))?.name:null;}return json({server_time:snapshotTime,user:{id:user.id,name:user.name,email:user.email,role:user.role},tenant:await one('select * from tenants where id=$1',[user.tenant]),accounts:accounts.map(a=>user.role==='admin'?safeAccount(a):{id:a.id,name:a.name,channel:a.channel,mode:a.mode,bridge:a.bridge,enabled:a.enabled,forwarding_enabled:a.forwarding_enabled,service_hours:a.service_hours,forwarding_phone:a.forwarding_phone,forwarding_period:a.forwarding_period}),conversations,users:user.role==='admin'?await rows('select id,name,email,role,accounts from users where tenant=$1',[user.tenant]):[],audit:user.role==='admin'?await rows('select * from audit where tenant=$1 order by created desc limit 50',[user.tenant]):[],jobs:user.role==='admin'?await rows('select j.id,j.kind,j.state,j.error,j.created,j.recipient,a.name as source_name from jobs j left join accounts a on a.id=j.alert_source and a.tenant=j.tenant where j.tenant=$1 order by j.created desc limit 50',[user.tenant]):[]});}
   if(path==='/api/accounts'&&request.method==='POST'){
     admin(user);
     const old=input.id?await getAccount(user,input.id):null,channel=old?.channel||input.channel;
@@ -262,7 +278,7 @@ async function api(request,url,path){
     const forwardingEnabled=typeof input.forwardingEnabled==='boolean'?input.forwardingEnabled:old?.forwarding_enabled??false;
     if(forwardingEnabled&&!bridge&&channel!=='whatsapp')fail('Selecione uma conta WhatsApp para encaminhar.');
     if(forwardingEnabled&&mode==='live'){if(!bridge&&!old?.forwarding_phone)fail('Configure o telefone de destino em Horários e encaminhamento.');const tenant=await one('select phone from tenants where id=$1',[user.tenant]);await validateForwardingTarget(user,{...old,id:aid,tenant:user.tenant,channel,mode,secret:seal(secrets)},bridge,old?.forwarding_phone||tenant.phone);}
-    if(alerts.enabled){const sender=bridge?await getAccount(user,bridge):channel==='whatsapp'?{channel,mode}:null;if(!sender||sender.channel!=='whatsapp'||sender.mode!=='live')fail('Selecione uma conta WhatsApp ativa para enviar os alertas.');}
+    if(alerts.enabled){const sender=bridge?await getAccount(user,bridge):channel==='whatsapp'?{channel,mode}:null;if(!sender||sender.enabled===false||sender.channel!=='whatsapp'||sender.mode!=='live')fail('Selecione uma conta WhatsApp ativa para enviar os alertas.');}
     if(channel==='instagram'&&mode==='live')await configureInstagramWebhook(external,secrets);
     await run('insert into accounts(id,tenant,name,channel,external,secret,mode,bridge,forwarding_enabled,alerts_enabled,queue_alert_minutes,assigned_alert_minutes,alerts_phones) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) on conflict(id) do update set name=excluded.name,external=excluded.external,secret=excluded.secret,mode=excluded.mode,bridge=excluded.bridge,forwarding_enabled=excluded.forwarding_enabled,alerts_enabled=excluded.alerts_enabled,queue_alert_minutes=excluded.queue_alert_minutes,assigned_alert_minutes=excluded.assigned_alert_minutes,alerts_phones=excluded.alerts_phones',[aid,user.tenant,required(input.name,'Nome'),channel,external,seal(secrets),mode,bridge,forwardingEnabled,alerts.enabled,alerts.queue,alerts.assigned,alerts.phones]);
     if(channel==='whatsapp'&&mode==='live'&&transport==='meta')await configureWhatsAppWebhook(aid,secrets);
@@ -276,6 +292,7 @@ async function api(request,url,path){
   m=path.match(/^\/api\/conversations\/([^/]+)\/reply$/);if(m&&request.method==='POST'){
     if(user.role==='viewer')fail('Seu perfil permite apenas visualizar.',403);
     const c=await getConversation(user,m[1]),a=await getAccount(user,c.account),body=input.attachmentId?String(input.body||'').trim():required(input.body,'Mensagem',2000),mid=id();
+    if(a.enabled===false)fail('Canal desativado. Ative o canal para enviar mensagens.',409);
     if(a.mode==='live'&&c.customer.startsWith('demo-'))fail('Conversa demonstrativa não pode enviar mensagens reais.');
     let signed;try{signed=body?signedReply(user.name,body):'';}catch(error){fail(error.message);}
     if(!c.assigned_to)fail('Clique em Assumir atendimento antes de responder.',403);
@@ -303,6 +320,7 @@ async function qrWebhook(request,path){
   let event;try{event=JSON.parse(raw);}catch{fail('JSON inválido.');}
   const aid=path.split('/').pop(),account=await one('select * from accounts where id=$1',[aid]);
   if(!account||!usesQr(account)||account.mode!=='live')fail('Canal QR indisponível.',404);
+  if(account.enabled===false)return json({received:true,ignored:true});
   const payload=qrInboundPayload(account,event),eid=digest(account.id+event.id);
   const existing=await one('select state from events where id=$1',[eid]);if(existing?.state==='done')return json({received:true});
   await run('insert into events(id,tenant,payload,state,error,created) values($1,$2,$3,$4,$5,$6) on conflict(id) do nothing',[eid,account.tenant,payload,'received','',now()]);

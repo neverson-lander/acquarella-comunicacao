@@ -38,6 +38,7 @@ export function createInboundHandler({ one, run, id, now, open, profile, send, q
   }
 
   return async function processInbound(account, payload) {
+    if(account.enabled===false)return;
     if (account.channel === 'whatsapp') {
       for (const entry of payload.entry || []) for (const change of entry.changes || []) {
         const value = change.value || {};
@@ -48,6 +49,7 @@ export function createInboundHandler({ one, run, id, now, open, profile, send, q
           await run("update messages set state='failed' where external=$1 and conversation in (select id from conversations where account=$2)", [status.id, account.id]);
         }
         for (const message of inboundWhatsApp(value)) {
+          if(message.timestamp<Number(account.receive_after||0))continue;
           if(payload.qrEcho){
             if(message.reaction)continue;
             // Echoes from the linked phone do not renew a customer's service
@@ -107,6 +109,7 @@ export function createInboundHandler({ one, run, id, now, open, profile, send, q
       if (!accountIds.includes(String(entry.id))) continue;
       const items = [...(entry.messaging || []), ...(entry.changes || []).filter(x => ['messages','messaging_referral','messaging_referrals'].includes(x.field)).map(x => x.value || {})];
       for (const m of items) {
+        const received=Number(m.timestamp)||now();if((received<1e12?received*1000:received)<Number(account.receive_after||0))continue;
         if(m.message?.is_deleted&&m.message.mid){
           await run("update messages set kind='deleted',media='{}'::jsonb,body=$1 where external=$2 and direction='in'",[`[Mensagem excluída no ${account.channel==='instagram'?'Instagram':'Messenger'}.]`,account.id+':'+m.message.mid]);
           continue;

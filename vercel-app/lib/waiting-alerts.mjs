@@ -68,7 +68,7 @@ export function createWaitingAlerts({pool,send,now=Date.now,requiresWindow=()=>t
     try{
       await client.query('begin');
       const a=(await client.query('select * from accounts where id=$1 for update skip locked',[aid])).rows[0];
-      if(!a?.alerts_enabled||a.mode!=='live'||!a.alerts_phones.length){await client.query('commit');return;}
+      if(!a?.alerts_enabled||a.enabled===false||a.mode!=='live'||!a.alerts_phones.length){await client.query('commit');return;}
       if((await client.query("select id from jobs where alert_source=$1 and kind='waiting_alert' and state in ('pending','sending') limit 1",[aid])).rows.length){await client.query('commit');return;}
       const time=now(),queueDue=a.queue_alert_at==null||time-Number(a.queue_alert_at)>=a.queue_alert_minutes*60000;
       const assignedDue=a.assigned_alert_at==null||time-Number(a.assigned_alert_at)>=a.assigned_alert_minutes*60000;
@@ -90,13 +90,13 @@ export function createWaitingAlerts({pool,send,now=Date.now,requiresWindow=()=>t
       const job=(await client.query("select * from jobs where id=$1 and state='pending' for update skip locked",[candidate.id])).rows[0];
       if(!job){await client.query('commit');return null;}
       const senderId=a.bridge||a.id,time=now();
-      const cancelled=!a.alerts_enabled||a.mode!=='live'||job.tenant!==a.tenant||senderId!==job.account||!a.alerts_phones.includes(job.recipient);
+      const cancelled=!a.alerts_enabled||a.enabled===false||a.mode!=='live'||job.tenant!==a.tenant||senderId!==job.account||!a.alerts_phones.includes(job.recipient);
       const pending=cancelled?{queue:[],assigned:[]}:await waiting(client,a,time,job.alert_queue,job.alert_assigned);
       if(cancelled||(!pending.queue.length&&!pending.assigned.length)){
         await client.query("update jobs set state='cancelled',error='Alerta cancelado: configuração alterada ou clientes já atendidos.' where id=$1",[job.id]);
         await client.query('commit');return null;
       }
-      const sender=(await client.query("select * from accounts where id=$1 and tenant=$2 and channel='whatsapp' and mode='live'",[senderId,a.tenant])).rows[0];
+      const sender=(await client.query("select * from accounts where id=$1 and tenant=$2 and channel='whatsapp' and mode='live' and enabled",[senderId,a.tenant])).rows[0];
       const windows=sender?(await client.query('select phone,seen from bridge_windows where account=$1',[sender.id])).rows:[];
       const windowOpen=windows.some(w=>sameWhatsAppPhone(w.phone,job.recipient)&&time-Number(w.seen)<86400000);
       const error=!sender?'Configure uma conta WhatsApp real para os alertas.':(requiresWindow(sender)&&!windowOpen)?`O destinatário +${job.recipient} precisa enviar uma mensagem ao número da API para abrir sua janela de 24 horas.`:null;
@@ -121,7 +121,7 @@ export function createWaitingAlerts({pool,send,now=Date.now,requiresWindow=()=>t
   }
   return async function processAlerts(){
     await pool.query("update jobs set state='uncertain',error='Execução interrompida durante o alerta; confira o WhatsApp antes de reenviar.' where kind='waiting_alert' and state='sending' and coalesce(alert_started_at,created)<$1",[now()-120000]);
-    const accounts=(await pool.query(`select id from accounts where alerts_enabled and mode='live' and jsonb_array_length(alerts_phones)>0
+    const accounts=(await pool.query(`select id from accounts where alerts_enabled and enabled and mode='live' and jsonb_array_length(alerts_phones)>0
       and (queue_alert_at is null or queue_alert_at<=$1-queue_alert_minutes*60000::bigint
         or assigned_alert_at is null or assigned_alert_at<=$1-assigned_alert_minutes*60000::bigint)
       order by least(coalesce(queue_alert_at,0),coalesce(assigned_alert_at,0)),id`,[now()])).rows;

@@ -141,6 +141,20 @@ test('real API + PostgreSQL: QR creation, admin/tenant guards, webhook deduplica
     assert.equal((await query('select state from jobs where id=$1',[staleJob])).rows[0].state,'cancelled');
     assert.equal((await webhook(inboundAt('hours-disabled','2020-01-06T23:00:00-03:00'))).status,200);assert.equal(forwardCount(),forwards);
 
+    assert.equal((await api(`accounts/${aid}/activation`,{enabled:false},'agent')).status,403);
+    assert.equal((await api(`accounts/${aid}/activation`,{enabled:false})).status,200);
+    assert.ok(calls.some(c=>c.url.endsWith('/pause')));
+    assert.equal((await api(`accounts/${aid}/qr/connect`,{})).status,409);
+    const countBeforePause=(await query('select count(*) as n from messages')).rows[0].n;
+    assert.equal((await webhook(inboundAt('paused-inbound',new Date().toISOString()))).status,200);
+    assert.equal((await query('select count(*) as n from messages')).rows[0].n,countBeforePause);
+    assert.equal((await api(`conversations/${conversation.id}/reply`,{body:'Bloqueado'})).status,409);
+    assert.equal((await api(`accounts/${aid}/activation`,{enabled:true})).status,200);
+    assert.ok(calls.some(c=>c.url.endsWith('/resume')));
+    assert.equal((await webhook(inboundAt('old-offline-inbound','2020-01-06T23:00:00-03:00'))).status,200);
+    assert.equal((await query('select count(*) as n from messages')).rows[0].n,countBeforePause);
+    assert.equal((await webhook(inboundAt('fresh-reactivated-inbound',new Date(Date.now()+1000).toISOString()))).status,200);
+    assert.equal((await query('select count(*) as n from messages')).rows[0].n,countBeforePause+1);
     const state=await (await api('state')).json(),visible=JSON.stringify(state);
     assert.ok(!visible.includes(secret));assert.ok(!visible.includes('TOKEN'));assert.ok(!visible.includes('APP_ENCRYPTION_KEY'));
     assert.equal(state.accounts.find(a=>a.id===aid).transport,'qr');assert.equal(state.accounts.find(a=>a.id===meta).transport,'meta');

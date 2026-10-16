@@ -19,7 +19,7 @@ async function execute(sql,args=[]){const r=await db.query(sql,args);for(const f
 let pending=Promise.resolve();
 const pool={query:execute,connect:async()=>{const previous=pending;let release;pending=new Promise(resolve=>{release=resolve;});await previous;return{query:execute,release};}};
 before(async()=>{
-  for(const file of ['202609290001_initial','202609290003_whatsapp_bridge','202609300004_sac','202609300005_crm','202609300006_attendance','202609300007_meta_attribution','202610020008_closure_scheduling']){
+  for(const file of ['202609290001_initial','202609290003_whatsapp_bridge','202609300004_sac','202609300005_crm','202609300006_attendance','202609300007_meta_attribution','202610020008_closure_scheduling','20261016042106_contact_directory_and_channel_activation']){
     const sql=await readFile(new URL('../supabase/migrations/'+file+'.sql',import.meta.url),'utf8');
     await db.exec(sql.replace('create extension if not exists pgcrypto;',''));
   }

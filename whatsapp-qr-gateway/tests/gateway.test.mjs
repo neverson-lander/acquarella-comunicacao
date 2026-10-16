@@ -90,6 +90,23 @@ test('HTTP routes require signatures and isolate session media, including byte r
   }finally{await new Promise(resolve=>server.close(resolve));store.close();}
 });
 
+test('pause preserves pairing, cancels pending callbacks and resume ignores the paused backlog',async()=>{
+  const store=makeStore(),sockets=[];let logout=0;
+  const manager=new Sessions({store,origin:'https://central.test',secret,makeSocket:()=>{const s={ev:new EventEmitter(),user:{id:'5534888888888@s.whatsapp.net'},end(){},logout:async()=>{logout++;}};sockets.push(s);return s;},fetcher:async()=>new Response('{}')});
+  try{
+    await manager.connect(session);sockets[0].ev.emit('connection.update',{connection:'open'});
+    const creds=store.get(session,'creds');assert.ok(creds);
+    store.accept(session,raw('pending-before-pause'));await manager.pause(session);
+    assert.equal(manager.status(session).status,'paused');assert.equal(logout,0);assert.deepEqual(store.get(session,'creds'),creds);assert.deepEqual(store.active(),[]);assert.equal(store.pending().length,0);
+    sockets[0].ev.emit('messages.upsert',{type:'notify',messages:[raw('paused-message')]});assert.equal(store.db.prepare("select count(*) as n from inbox where id='paused-message'").get().n,0);
+    await manager.resume(session);sockets[1].ev.emit('connection.update',{connection:'open'});assert.equal(manager.status(session).connected,true);assert.deepEqual(store.active(),[session]);
+    const old={...raw('old-backlog'),messageTimestamp:Math.floor(Date.now()/1000)-60};sockets[1].ev.emit('messages.upsert',{type:'notify',messages:[old]});assert.equal(store.db.prepare("select count(*) as n from inbox where id='old-backlog'").get().n,0);
+    sockets[1].ev.emit('messages.upsert',{type:'notify',messages:[raw('fresh-resumed')]});
+    for(let i=0;i<10&&manager.flushing;i++)await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(store.db.prepare("select count(*) as n from inbox where id='fresh-resumed'").get().n,1);
+  }finally{manager.close();store.close();}
+});
+
 test('uncertain sends are never automatically resent with the same idempotency key',async()=>{
   const store=makeStore();let count=0;
   const manager=new Sessions({store,origin:'https://central.test',secret});

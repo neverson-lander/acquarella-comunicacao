@@ -13,12 +13,13 @@ export function createGateway({sessions,store,secret}) {
       if(req.url==='/health'&&req.method==='GET')return json({ok:true});
       let body='';for await(const chunk of req){body+=chunk.toString();if(Buffer.byteLength(body)>65536)return json({error:'Requisição muito grande.',definite:true},413);}
       if(!validQrSignature(secret,req.method,req.url,new Headers(req.headers),body))return json({error:'Não autorizado.',definite:true},401);
-      const match=req.url.match(/^\/sessions\/([a-f0-9-]{36}_[a-f0-9-]{36})(?:\/(connect|disconnect|messages|media\/[a-f0-9-]{36}))?$/i);
+      const match=req.url.match(/^\/sessions\/([a-f0-9-]{36}_[a-f0-9-]{36})(?:\/(connect|disconnect|pause|resume|messages|media\/[a-f0-9-]{36}))?$/i);
       if(!match)return json({error:'Não encontrado.',definite:true},404);
       const [,id,action]=match;
       if(!action&&req.method==='GET')return json(sessions.status(id));
       if(action==='connect'&&req.method==='POST')return json(await sessions.connect(id));
       if(action==='disconnect'&&req.method==='POST')return json(await sessions.disconnect(id));
+      if(['pause','resume'].includes(action)&&req.method==='POST')return json(await sessions[action](id));
       if(action==='messages'&&req.method==='POST')return json(await sessions.send(id,JSON.parse(body)));
       if(action?.startsWith('media/')&&req.method==='GET'){
         const media=store.media(id,action.split('/')[1]);if(!media)return json({error:'Anexo expirado ou indisponível.',definite:true},404);

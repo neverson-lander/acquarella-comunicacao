@@ -205,6 +205,11 @@ try {
     await client.query(await readFile(new URL('../supabase/migrations/'+serviceHoursMigration+'.sql',import.meta.url),'utf8'));
     await client.query('insert into app_migrations(id) values($1)',[serviceHoursMigration]);
   }
+  const contactsMigration='20261016042106_contact_directory_and_channel_activation';
+  if(!(await client.query('select id from app_migrations where id=$1',[contactsMigration])).rowCount){
+    await client.query(await readFile(new URL('../supabase/migrations/'+contactsMigration+'.sql',import.meta.url),'utf8'));
+    await client.query('insert into app_migrations(id) values($1)',[contactsMigration]);
+  }
   await configureAlertScheduler(client);
   await client.query('commit');
   console.log('Agendador de alertas ativo: verificação a cada minuto.');

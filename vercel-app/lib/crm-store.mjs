@@ -3,6 +3,7 @@ import { STAGES, referralTouch, cents,selectedTouch } from './crm-domain.mjs';
 import {seesAttendance,worksAttendance} from './attendance-policy.mjs';
 import {registeredSource,sourceSnapshot} from './registered-source.mjs';
 import {createMetaAttribution} from './meta-attribution.mjs';
+import {contactPhoneKey} from '../public/contact-domain.mjs';
 
 const error=(message,status=400)=>{throw Object.assign(Error(message),{status});};
 const str=(v,label,max=200,optional=false)=>{if(typeof v!=='string'||v.length>max||(!optional&&!v.trim()))error(`${label} inválido.`);return v.trim();};
@@ -37,7 +38,9 @@ export function createCrm({pool,permitted,open,seal,now=Date.now,fetcher=fetch})
       await query(db,'select pg_advisory_xact_lock(hashtextextended($1,0))',[account.id+':'+message.customer]);
       let o=await one(db,'select * from crm_opportunities where conversation=$1',[conversation.id]);
       if(!o){
-        const contact=await one(db,'insert into crm_contacts(tenant,name,phone,created) values($1,$2,$3,$4) returning id',[account.tenant,conversation.name,account.channel==='whatsapp'?message.customer:'',message.timestamp]);
+        const phone=account.channel==='whatsapp'?message.customer:'',phoneKey=contactPhoneKey(phone);
+        if(phoneKey)await query(db,'select pg_advisory_xact_lock(hashtextextended($1,0))',[`${account.tenant}:contact:${account.id}:${phoneKey}`]);
+        const contact=(phoneKey&&await one(db,'select id from crm_contacts where tenant=$1 and account=$2 and phone_key=$3',[account.tenant,account.id,phoneKey]))||await one(db,'insert into crm_contacts(tenant,name,account,phone,created) values($1,$2,$3,$4,$5) returning id',[account.tenant,conversation.name,account.id,phone,message.timestamp]);
         o=await one(db,'insert into crm_opportunities(tenant,conversation,contact,first_contact,updated) values($1,$2,$3,$4,$4) returning *',[account.tenant,conversation.id,contact.id,message.timestamp]);
       }
       await query(db,'update crm_opportunities set first_contact=least(first_contact,$1),updated=greatest(updated,$1) where id=$2',[message.timestamp,o.id]);
@@ -135,6 +138,7 @@ export function createCrm({pool,permitted,open,seal,now=Date.now,fetcher=fetch})
     const match=path.match(/^\/api\/crm\/opportunities\/([^/]+)(?:\/(events|void|contact|source))?$/);
     if(!match)error('Rota CRM não encontrada.',404);
     return transaction(async db=>{
+      await query(db,"select set_config('app.contact_actor',$1,true)",[JSON.stringify({id:user.id,name:user.name})]);
       const o=await opportunity(db,user,match[1],true);
       const action=match[2];
       if(action==='events'){
@@ -170,6 +174,7 @@ export function createCrm({pool,permitted,open,seal,now=Date.now,fetcher=fetch})
         await history(db,user,o,'Origem adicional registrada manualmente.');return {ok:true};
       }
       if(action==='contact'){
+        await query(db,"select set_config('app.contact_actor',$1,true)",[JSON.stringify({id:user.id,name:user.name})]);
         if(input.link){
           if(!uuid(input.link))error('Contato inválido.');
           const ct=await one(db,'select id from crm_contacts where id=$1 and tenant=$2',[input.link,user.tenant]);if(!ct)error('Contato não encontrado.',404);
@@ -181,7 +186,7 @@ export function createCrm({pool,permitted,open,seal,now=Date.now,fetcher=fetch})
         if(!linked.every(a=>permitted(user,a)&&worksAttendance(user,a)))error('Sem acesso a todos os atendimentos deste contato.',403);
         const name=str(input.name,'Nome'),phone=str(input.phone||'','Telefone',30,true).replace(/\D/g,''),email=str(input.email||'','E-mail',200,true);
         if(phone&&!/^\d{10,15}$/.test(phone))error('Inclua país e DDD no telefone.');if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))error('E-mail inválido.');
-        await query(db,'update crm_contacts set name=$1,phone=$2,email=$3,notes=$4,name_manual=true where id=$5 and tenant=$6',[name,phone,email,str(input.notes||'','Notas',5000,true),o.contact,user.tenant]);
+        await query(db,'update crm_contacts set name=$1,phone=$2,email=$3,notes=$4,name_manual=true where id=$5 and tenant=$6',[name,phone,email,str(input.notes||'','Notas',400,true),o.contact,user.tenant]);
         await history(db,user,o,'Cadastro do contato atualizado.');return {ok:true};
       }
       if(!STAGES.some(s=>s[0]===input.stage))error('Estágio inválido.');

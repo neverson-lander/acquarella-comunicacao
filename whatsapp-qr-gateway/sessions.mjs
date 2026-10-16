@@ -26,6 +26,14 @@ export class Sessions {
     try{await this.start(s);}catch{ s.status='unavailable';this.reconnect(s);throw failure('Não foi possível iniciar o WhatsApp. Tente novamente.',503);}
     return this.status(id);
   }
+  async pause(id){
+    const s=this.sessions.get(id);
+    if(s){s.stopped=true;s.status='paused';s.qr=null;clearTimeout(s.timer);const socket=s.socket;s.socket=null;socket?.end?.(Error('Canal desativado.'));}
+    this.store.db.prepare('update sessions set enabled=0 where id=?').run(id);
+    this.store.db.prepare('update inbox set done=1 where session=? and done=0').run(id);
+    return this.status(id);
+  }
+  async resume(id){this.store.set(id,'system:receive-after',Math.floor(Date.now()/1000)*1000);return this.connect(id);}
   async start(s) {
     if(this.closed||s.stopped)return;
     clearTimeout(s.timer);s.status='connecting';
@@ -61,6 +69,8 @@ export class Sessions {
     socket.ev.on('messages.upsert',({messages,type})=>{
       if(type!=='notify'||s.stopped||s.socket!==socket)return;
       for(const message of messages){
+        const cutoff=this.store.get(s.id,'system:receive-after')||0;
+        if(cutoff&&Number(message.messageTimestamp)*1000<cutoff)continue;
         if(!message.key?.id||!message.message||(!directJid(message.key.remoteJid)&&!message.key.remoteJid?.endsWith('@lid')))continue;
         const m=unwrap(message.message);
         if(m.protocolMessage||m.senderKeyDistributionMessage)continue;
@@ -96,6 +106,7 @@ export class Sessions {
     const s=this.sessions.get(id);if(!s||s.status!=='connected'||!s.socket)throw failure('WhatsApp desconectado. Reconecte pelo QR Code.');
     let bytes,content;try{bytes=input.media?await fetchAttachment(input.media,this.origin,this.fetcher):null;content=outboundContent(input,bytes);}catch{throw failure('Mensagem ou anexo inválido/indisponível.',400);}
     // Check again after downloading the attachment, before claiming the send.
+    if(s.stopped||s.status!=='connected'||!s.socket)throw failure('Canal pausado ou desconectado antes do envio.');
     if(this.store.sent(id,input.idempotencyKey))return this.send(id,input);
     const socket=s.socket,external=generateMessageIDV2(socket.user?.id);
     this.store.recordSend(id,input.idempotencyKey,external,input);
@@ -110,6 +121,7 @@ export class Sessions {
     if(this.flushing||this.closed)return;this.flushing=true;
     try{for(const row of this.store.pending()){
       try{
+        if(this.sessions.get(row.session)?.stopped)continue;
         let event=row.event?this.store.open(row.event):null;
         if(!event){
           const s=this.sessions.get(row.session);if(!s?.socket)continue;

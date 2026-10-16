@@ -28,7 +28,7 @@ export function inboundWhatsApp(value) {
 
 export function forwardingPhone(origin,teamPhone){return origin.forwarding_phone||teamPhone;}
 export function forwardingAllowed(origin, bridge, customer, teamPhone, timestamp=Date.now()) {
-  return !!(origin.forwarding_enabled && (origin.bridge||(origin.channel==='whatsapp'&&origin.forwarding_phone?origin.id:null)) === bridge?.id && bridge?.channel === 'whatsapp' &&
+  return !!(origin.enabled!==false && bridge?.enabled!==false && origin.forwarding_enabled && (origin.bridge||(origin.channel==='whatsapp'&&origin.forwarding_phone?origin.id:null)) === bridge?.id && bridge?.channel === 'whatsapp' &&
     origin.tenant === bridge.tenant && bridge.mode === 'live' &&
     !(origin.channel === 'whatsapp' && sameWhatsAppPhone(customer, forwardingPhone(origin,teamPhone))) &&
     (timestamp===null||forwardingPeriodAllows(origin,timestamp)));

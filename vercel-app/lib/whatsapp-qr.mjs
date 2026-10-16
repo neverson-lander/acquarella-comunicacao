@@ -25,6 +25,8 @@ export function createQrClient({env=process.env,fetcher=fetch}={}) {
     status:account=>request(account,'',{method:'GET'}),
     connect:account=>request(account,'/connect'),
     disconnect:account=>request(account,'/disconnect'),
+    pause:account=>request(account,'/pause'),
+    resume:account=>request(account,'/resume'),
     async send(account,recipient,body,media,idempotencyKey=randomUUID()) {
       const result=await request(account,'/messages',{input:{recipient,body,media,idempotencyKey}});
       if(!result.external)throw fail('O WhatsApp não confirmou o identificador do envio.',502,false);
