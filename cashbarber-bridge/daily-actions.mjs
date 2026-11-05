@@ -38,12 +38,27 @@ export async function comandaPage(api,tenant,input){
  if(!Number.isInteger(data?.last_page)||data.last_page<1)throw cashError('Paginação de comandas inválida.',502);
  return {ids:list(data.data).filter(r=>String(r.com_id_filial)===branch&&oldComanda(r)).map(r=>externalId(r.id)),lastPage:data.last_page};
 }
+export function comandaBalanceCents(raw){
+ const value=raw.saldo;
+ if((typeof value!=='number'&&typeof value!=='string')||String(value).trim()==='')return null;
+ const cents=Number(value);
+ return Number.isSafeInteger(cents)&&cents>=0?cents:null;
+}
+
+export function canRetryComanda(prior,raw,{cashbox,payment_method}){
+ const cents=comandaBalanceCents(raw);
+ return prior?.state==='uncertain'&&(!prior.retried||prior.balanceCents===undefined)&&
+  cents!==null&&cents===(prior.balanceCents??prior.amount)&&
+  Array.isArray(raw.movimentacoes_registros)&&raw.movimentacoes_registros.length===0&&
+  (!prior.cashbox||cashbox===prior.cashbox)&&(!prior.paymentMethod||payment_method===prior.paymentMethod);
+}
+
 export async function closeComanda(api,tenant,input){
  const id=externalId(input.id),key='daily_close_'+tenant+'_'+id;
  const prior=await api.vault.read(key);
  if(prior?.state==='closed')return {state:'closed'};
  if(prior?.state==='failed')return {state:'failed',error:prior.error};
- const retry=input.retryUnconfirmed===true&&prior?.state==='uncertain'&&!prior.retried;
+ const retry=input.retryUnconfirmed===true&&prior?.state==='uncertain'&&(!prior.retried||prior.balanceCents===undefined);
  if(prior&&!retry)return {state:'uncertain',error:'Operação já iniciada. Confira no CashBarber; não será repetida.'};
  const raw=await api.request(tenant,'comandas/'+id),branch=await api.branch(tenant);
  if(String(raw.id)!==id||String(raw.com_id_filial)!==branch)throw cashError('Comanda de outra filial ou inválida.',422);
@@ -51,11 +66,11 @@ export async function closeComanda(api,tenant,input){
  const options=await comandaOptions(api,tenant);
  const payment=options.methods.find(x=>x.id===input.payment_method);
  if(!options.boxes.some(x=>x.id===input.cashbox)||!payment?.code)throw cashError('Caixa ou forma de pagamento indisponível.',422);
- const amount=Number(raw.saldo);
- if(raw.saldo===null||raw.saldo===''||!Number.isFinite(amount)||amount<0)throw cashError('Saldo da comanda não verificável.',422);
- if(input.retryUnconfirmed===true&&(!retry||!Array.isArray(raw.movimentacoes_registros)||raw.movimentacoes_registros.length||
-  amount!==prior.amount||(prior.cashbox&&input.cashbox!==prior.cashbox)||(prior.paymentMethod&&input.payment_method!==prior.paymentMethod)))
+ const balanceCents=comandaBalanceCents(raw);
+ if(balanceCents===null)throw cashError('Saldo da comanda não verificável.',422);
+ if(input.retryUnconfirmed===true&&!canRetryComanda(prior,raw,input))
   return {state:'uncertain',error:'Nova tentativa suspensa: saldo, movimentações ou configuração não correspondem à tentativa anterior.'};
+ const amount=balanceCents/100;
  const payload={
   caixa_id:input.cashbox,
   movimentacoes_registros:[{forma_pagamento_id:payment.id,forma_pagamento:payment.code,valor_pagamento:amount,cartao:''}],
@@ -67,14 +82,14 @@ export async function closeComanda(api,tenant,input){
   }))
  };
  // Durable before the financial write. An ambiguous response is never retried.
- await api.vault.write(key,{state:'sending',at:Date.now(),cashbox:input.cashbox,paymentMethod:input.payment_method,amount,retried:retry});
+ await api.vault.write(key,{state:'sending',at:Date.now(),cashbox:input.cashbox,paymentMethod:input.payment_method,amount,balanceCents,retried:retry});
  let accepted=false;
  try{
   await api.request(tenant,'comandas/fechar/'+id,payload,'PUT');
   accepted=true;
   const result=await api.request(tenant,'comandas/'+id);
   if(String(result.id)!==id||String(result.com_id_filial)!==branch||Number(result.com_pago)!==1)throw Error('unconfirmed');
-  await api.vault.write(key,{state:'closed',at:Date.now(),amount});
+  await api.vault.write(key,{state:'closed',at:Date.now(),amount,balanceCents});
   return {state:'closed'};
  }catch(error){
   const rejected=!accepted&&[400,422].includes(error.providerStatus);
@@ -85,7 +100,7 @@ export async function closeComanda(api,tenant,input){
    :error.providerStatus?`O CashBarber retornou HTTP ${error.providerStatus} no fechamento.`
    :'A resposta ao pedido de fechamento não pôde ser confirmada.';
   const message=detail+' Confira a comanda no CashBarber. A operação não será repetida automaticamente.';
-  await api.vault.write(key,{state,at:Date.now(),amount,error:message,retried:retry,cashbox:input.cashbox,paymentMethod:input.payment_method});
+  await api.vault.write(key,{state,at:Date.now(),amount,balanceCents,error:message,retried:retry,cashbox:input.cashbox,paymentMethod:input.payment_method});
   return {state,error:message};
  }
 }

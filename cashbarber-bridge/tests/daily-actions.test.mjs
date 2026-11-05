@@ -13,7 +13,7 @@ test('service actions cannot be executed using operator sessions; subscription n
 });
 test('closure rechecks branch, age and balance, writes a durable journal before PUT and never repeats an ambiguous write',async()=>{
  const saved=new Map(),writes=[];let paid=false,writeError=null;
- const raw={id:123,com_id_filial:3782,com_pago:0,com_active:1,created_at:'2026-01-01T10:00:00Z',saldo:12.50,movimentacoes_registros:[],
+ const raw={id:123,com_id_filial:3782,com_pago:0,com_active:1,created_at:'2026-01-01T10:00:00Z',saldo:1250,movimentacoes_registros:[],
   comanda_agendamentos:[{agendamento:{agendamento_servicos:[{id:10,ags_valor:15,ags_desconto:2.50,servico:{id:5}}]}}],
   produtos:[{id:20,cop_valor:5,cop_desconto:5,cop_quantidade:1,produto:{id:6}}]};
  const api={branch:async()=> '3782',vault:{read:async k=>saved.get(k),write:async(k,v)=>saved.set(k,v)},request:async(t,path,body,method)=>{
@@ -34,6 +34,8 @@ test('closure rechecks branch, age and balance, writes a durable journal before 
  });
  await closeComanda(api,tenant,input);assert.equal(writes.length,1);
  saved.clear();paid=false;writeError=Error('timeout');assert.equal((await closeComanda(api,tenant,input)).state,'uncertain');await closeComanda(api,tenant,input);assert.equal(writes.length,2);
+ const [journalKey]=saved.keys();
+ saved.set(journalKey,{state:'uncertain',amount:1250,retried:true});
  const retry={...input,retryUnconfirmed:true};
  raw.movimentacoes_registros=[{}];assert.equal((await closeComanda(api,tenant,retry)).state,'uncertain');assert.equal(writes.length,2);
  raw.movimentacoes_registros=[];assert.equal((await closeComanda(api,tenant,retry)).state,'uncertain');
