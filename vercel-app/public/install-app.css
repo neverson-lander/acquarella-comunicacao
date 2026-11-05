@@ -1,0 +1,19 @@
+.install-app-button { display:flex; align-items:center; gap:10px; width:100%; min-height:44px; padding:10px 12px; margin-top:14px; border:1px solid #c7dce3; border-radius:8px; background:#edf5f7; color:#004358; text-align:left; font-size:12px; }
+.install-app-button > span { font-size:23px; }
+.install-app-button[hidden] { display:none; }
+.shell.sidebar-collapsed .install-app-button { justify-content:center; font-size:0; padding:10px; }
+.shell.sidebar-collapsed .install-app-button > span { font-size:23px; }
+.install-app-dialog { width:min(440px,calc(100% - 24px)); max-height:calc(100dvh - 32px); overflow:auto; padding:22px; border:1px solid #c7dce3; border-radius:14px; color:#004358; background:#fff; }
+.install-app-dialog::backdrop { background:#002b3a80; }
+.install-app-heading { display:flex; align-items:flex-start; gap:12px; }
+.install-app-heading h2 { flex:1; margin:0 0 12px; font-size:20px; }
+.install-app-heading button { min-width:40px; min-height:40px; border-radius:8px; background:#edf5f7; color:#004358; font-size:24px; }
+.install-app-dialog p,.install-app-dialog li { color:#476672; line-height:1.6; font-size:14px; }
+.install-app-dialog ol { padding-left:22px; }
+.install-app-dialog li { margin:12px 0; }
+.install-app-dialog .install-app-note { font-size:12px; }
+.install-app-dialog > .primary { min-height:44px; width:100%; }
+.install-app-dialog > [data-native-install][hidden] { display:none; }
+.install-app-dialog > [data-install-close] { min-height:44px; width:100%; }
+.install-app-dialog .install-app-status { padding:10px 12px; border-radius:8px; background:#edf5f7; font-size:13px; }
+@media(display-mode:standalone) { .install-app-button { display:none; } }

@@ -37,6 +37,12 @@ Inclui pré-requisitos, configuração de Instagram Login, Messenger e WhatsApp 
 
 ## CRM, Serviços e Atendimento
 
+### Agenda CashBarber integrada
+
+O painel **Agenda CashBarber** dentro da conversa utiliza APIs para consultar clientes, planos, profissionais, serviços, preços e horários, e registra um serviço por agendamento. Clientes novos podem ser cadastrados nesse painel e depois vinculados ao atendimento. Administradores podem importar a base existente em Cadastro de contatos → Importar CashBarber. O administrador conecta a conta em Configurações. O serviço persistente é instalado junto da VPS; uma implantação somente na Vercel precisa apontar para um conector externo privado. Veja [conector, implantação e limites](../cashbarber-bridge/README.md).
+
+Os preços são conferidos pelo CashBarber para o cliente selecionado. Tentativas usam conferência com validade, revalidação, diário persistente, verificação do ID registrado e tratamento de resultado incerto. Permissões são aplicadas ao atendimento e canal. O registro no CashBarber não cria uma conversão/venda no CRM automaticamente.
+
 ### Área de atendimento e avisos
 
 A Caixa de entrada ocupa a altura disponível da janela, com menu lateral e resumos recolhíveis, abas compactas Fila/Meus atendimentos/Todos, modo Só conversa, tempo de espera e destaque de mensagens novas. Menu e resumos conservam a preferência por usuário/empresa neste navegador. No celular, a lista e a conversa são telas alternadas com botão de retorno. Os detalhes de canal/origem ficam em um painel expansível. **Modo conversa** recolhe toda a área superior e compacta o compositor, mantendo uma barra curta com o cliente, acesso à fila, menu ⋯ e encerramento. Transferência, histórico, CRM, identificação, avisos e atualização continuam disponíveis no menu; o ícone Mostrar controles de atendimento restaura a visão completa. A preferência é guardada por usuário/empresa, sem prender a navegação quando não há conversa selecionada.
@@ -121,3 +127,47 @@ Validação: node --test tests/*.test.mjs em vercel-app; testes de interface tes
 ## WhatsApp por QR Code
 
 O canal WhatsApp aceita API oficial da Meta ou QR Code por aparelho vinculado. Em Canais de comunicação, escolha a forma de conexão ao adicionar o canal. Canais existentes permanecem oficiais. O modo QR requer o serviço persistente de [whatsapp-qr-gateway](../whatsapp-qr-gateway/README.md), com sessão criptografada, callback assinado e variáveis WHATSAPP_QR_URL/WHATSAPP_QR_SECRET no backend. A fila, atribuição, histórico, CRM, anexos e permissões são compartilhados. Nenhuma nova migração SQL é necessária. Testes não substituem o pareamento real e a validação do número após a implantação.
+# Agendamentos e campanhas
+
+O encerramento consulta as reservas CashBarber confirmadas e ainda não vinculadas a outro encerramento. Exibe os serviços e o preço histórico de cada reserva, incluindo preços zerados de planos, sem depender do catálogo atual. O servidor confere novamente os IDs e valores e vincula as reservas ao histórico em uma transação. Tentativas pendentes ou incertas exigem conferência antes de encerrar. A migração `202610190002_booking_outcomes` protege o orçamento confirmado contra alteração e guarda a data da confirmação.
+
+Em Métricas, **Agendamentos e retorno por campanha** apresenta clientes, serviços e valor agendado, agrupamento por campanha/conjunto/anúncio/criativo/origem, identificação automática ou manual e CSV detalhado. O período usa a data de confirmação da reserva, incluindo clientes que iniciaram contato antes. A origem segue a regra existente de primeiro contato com correções manuais explícitas. As permissões de empresa, canal e atendimento também se aplicam às reservas. Valores agendados não são lançados como receita de venda; alterações ou cancelamentos feitos diretamente no CashBarber não são sincronizados. O relatório abrange reservas confirmadas pela central.
+
+### Encerramento em massa da fila
+
+Na aba **Fila**, administradores e recepcionistas podem usar **Encerrar fila em massa**. A lista exibe até 200 atendimentos antigos elegíveis, de todos os canais autorizados, com seleção individual ou de todos. São elegíveis apenas conversas atualmente abertas e sem atendente, inclusive as devolvidas à fila ou com mensagens anteriores, sem reservas CashBarber pendentes ou confirmadas ainda não vinculadas a um encerramento.
+
+Antes de encerrar, o servidor trava os registros e confere novamente as permissões, o estado e as mensagens da consulta. Atendimentos assumidos, alterados ou com novas mensagens são preservados; o resultado informa encerrados e ignorados. Cada encerramento registra o operador e a ação no histórico, sem alterar a origem do contato, enviar mensagens ou declarar resultados de agendamento. Esses registros ficam separados dos atendimentos finalizados após atendimento nas métricas de produtividade. Não é necessária migração de banco.
+
+### Excluir canais e preservar o histórico
+
+Administradores encontram **Excluir canal** em cada cartão de Canais de comunicação. A confirmação informa o canal e os encaminhamentos/alertas afetados. A exclusão é lógica: o canal sai das conexões, fica impedido de receber/enviar ou ser reativado, e o identificador externo é liberado para um novo cadastro. Conversas abertas são encerradas com um motivo próprio no histórico, sem atribuir produtividade de atendimento ao operador. Mensagens, contatos, agendamentos e CRM permanecem registrados; as conversas podem ser consultadas em **Todos → Resolvidas**. Credenciais existentes permanecem criptografadas para acesso aos anexos históricos; sessões de pareamento QR são desconectadas.
+
+Os envios pendentes são cancelados. Canais que utilizavam o excluído como remetente ficam sem ponte, com encaminhamentos e alertas desativados. Envios em andamento e agendamentos sem confirmação precisam ser conferidos antes da exclusão. Se o serviço QR não responder, o canal permanece visível e desativado para tentar excluir novamente.
+
+Aplique a migração **202610200001_channel_deletion.sql** antes de publicar a aplicação. O migrador da VPS e o build da aplicação incluem essa etapa.
+
+O resumo de espera e os cartões da fila usam a primeira mensagem ainda pendente ou a entrada mais recente na fila. Em registros sem data válida de mensagem, consideram a data disponível do atendimento; sem qualquer data válida, o resumo informa horário indisponível.
+# Avaliação de atendimento por IA
+
+Cada canal tem a opção **Avaliar atendimento com IA ao encerrar**, desligada por padrão. Encerramentos individuais gravam uma análise na fila dentro da mesma transação; a requisição de encerramento não chama a OpenAI. Encerramentos em massa sem início não geram avaliações. Reabrir e encerrar novamente cria outro ciclo, sem alterar a análise anterior.
+
+Em **Configurações → Avaliação de atendimento por IA**, use **Continue with ChatGPT** para gerar um código temporário. No computador com navegador e Node.js 24, na raiz deste repositório, execute:
+
+```powershell
+node vercel-app/scripts/connect-chatgpt.mjs https://vps-0345876c.vps.ovh.ca
+```
+
+Informe o código quando o terminal pedir e autorize na página oficial da OpenAI. O conector usa callback local, valida assinatura OIDC, nonce, audiência e expiração, e transfere a autorização por HTTPS para a empresa que gerou o código. Não reutiliza credenciais do Codex nem pede a senha do ChatGPT. O código dura dez minutos e só permite uma conexão. Tokens ficam criptografados no banco; a VPS serializa sua renovação. A desconexão tenta revogar a sessão remota, limpa os tokens e preserva a identificação do registro para reconexão à mesma conta.
+
+Depois da conexão, atualize a tela, clique em **Atualizar modelos**, selecione um modelo disponível na sua conta e salve. As orientações comerciais são opcionais. A disponibilidade do uso do plano depende da elegibilidade da conta e da instalação; a aplicação não troca automaticamente para uma API paga.
+
+O histórico mostra nota de 0 a 10, critérios com pesos, itens não aplicáveis, observações, limitações e botões para as mensagens usadas como evidência. Métricas inclui médias mensais por responsável no encerramento e versão da rubrica. A nota representa o ciclo completo, inclusive participações compartilhadas. Não haver venda/agendamento não implica nota baixa. Anexos não são transcritos nem inspecionados; ciclos sem troca de texto ou com mais de 500 mensagens/120 mil caracteres requerem revisão humana. As mensagens incluídas são congeladas ao encerrar; mensagens ainda na fila ou sem entrega confirmada ficam fora da avaliação.
+
+Na VPS, um processador independente consulta a fila a cada 15 segundos. Cada execução processa um registro com trava e prazo de recuperação; falhas técnicas têm até três tentativas, e falta de conexão/modelo ou limite do ChatGPT mantém a análise aguardando. Administradores e recepcionistas autorizados podem repetir análises com falha pelo histórico. Desligar a avaliação cancela os registros ainda na fila e preserva os resultados concluídos. A implantação alternativa também processa a fila pelo agendador autenticado existente em `/api/internal/waiting-alerts`. O endpoint dedicado `/api/internal/attendance-evaluations` exige o mesmo `CRON_SECRET`.
+
+Referências oficiais: [uso do plano ChatGPT](https://developers.openai.com/siwc/token-sharing-open-source), [instalações em VPS](https://developers.openai.com/siwc/token-sharing-open-source/self-hosted-vms), [limitações da integração](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations).
+
+# Mensagens automáticas da agenda
+
+Confirmação 24h antes e lembrete 2h antes, com regras de antecedência, histórico de entregas e renovação opcional da autenticação CashBarber. Configuração e publicação: [mensagens da agenda](../docs/appointment-notifications.md).

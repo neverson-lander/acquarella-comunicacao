@@ -1,4 +1,4 @@
-function canonicalPhone(value) {
+export function canonicalPhone(value) {
   const digits = String(value ?? '');
   if (!/^\d{10,15}$/.test(digits)) return null;
   // Meta may identify Brazilian mobile numbers using the legacy eight-digit form.

@@ -47,6 +47,17 @@ async function fixture() {
   return {db,pool,execute,tenant,other,source,sender,operator,conversation,message,sent,worker,now:()=>time,advance:n=>time+=n*60000};
 }
 
+test('phone replies including second-resolution timestamps suppress alerts until a new inbound; reactions do not',async()=>{
+  const f=await fixture();try{
+    const phone=await f.conversation({name:'Resposta no celular'}),same=await f.conversation({name:'Mesmo segundo'}),reaction=await f.conversation({name:'Somente reação'});
+    await f.message(phone,'out','sent',19);await f.message(same,'out','sent',20);
+    await f.execute("update messages set operator_name='WhatsApp vinculado' where direction='out'");
+    const rid=randomUUID();await f.execute("insert into messages(id,conversation,direction,body,created,state,kind) values($1,$2,'out','👍',$3,'sent','reaction')",[rid,reaction,f.now()-60000]);
+    assert.equal((await f.worker()).sent,1);assert.ok(!f.sent[0].body.includes('Resposta no celular'));assert.ok(!f.sent[0].body.includes('Mesmo segundo'));assert.ok(f.sent[0].body.includes('Somente reação'));
+    await f.message(phone,'in','received',0);f.advance(5);assert.equal((await f.worker()).sent,1);assert.ok(f.sent[1].body.includes('Resposta no celular'));
+  }finally{await f.db.close();}
+});
+
 test('queue and assigned waits respect separate thresholds, repeat intervals and confirmed replies',async()=>{
   const f=await fixture();
   try {

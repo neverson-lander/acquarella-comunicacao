@@ -40,13 +40,19 @@ export class Store {
   retry(row) {this.db.prepare('update inbox set attempts=attempts+1,next=? where session=? and id=?').run(Date.now()+Math.min(300000,2000*2**Math.min(row.attempts,7)),row.session,row.id);}
   sent(session,id) {return this.db.prepare('select * from sends where session=? and id=?').get(session,id);}
   wasSent(session,external) {return !!this.db.prepare('select id from sends where session=? and external=?').get(session,external);}
+  receipt(session,external,status){
+    if(!external||!this.wasSent(session,external))return;
+    const current=this.get(session,`delivery:${external}`)||{status:1};
+    if(status!==0&&status<=current.status)return;
+    this.set(session,`delivery:${external}`,{...current,status,updated:Date.now()});
+  }
   recordSend(session,id,external,payload) {this.db.prepare("insert into sends values(?,?,?,?,'sending',?)").run(session,id,external,this.seal(payload),Date.now());}
   sendState(session,id,state) {this.db.prepare('update sends set state=? where session=? and id=?').run(state,session,id);}
   saveMedia(session,id,bytes,mime) {this.db.prepare('insert or replace into media values(?,?,?,?,?)').run(session,id,this.seal(bytes.toString('base64')),mime,Date.now());}
   media(session,id) {const row=this.db.prepare('select * from media where session=? and id=?').get(session,id);return row?{bytes:Buffer.from(this.open(row.body),'base64'),mime:row.mime}:null;}
   cleanup(days=30) {
     const before=Date.now()-days*86400000;
-    this.db.prepare("delete from secrets where key like 'message:%' and (exists(select 1 from inbox where inbox.session=secrets.session and 'message:'||inbox.id=secrets.key and done=1 and created<?) or exists(select 1 from sends where sends.session=secrets.session and 'message:'||sends.external=secrets.key and created<?))").run(before,before);
+    this.db.prepare("delete from secrets where (key like 'message:%' or key like 'delivery:%') and (exists(select 1 from inbox where inbox.session=secrets.session and 'message:'||inbox.id=secrets.key and done=1 and created<?) or exists(select 1 from sends where sends.session=secrets.session and (secrets.key='message:'||sends.external or secrets.key='delivery:'||sends.external) and created<?))").run(before,before);
     for(const table of ['media','sends'])this.db.prepare(`delete from ${table} where created<?`).run(before);
     this.db.prepare('delete from inbox where done=1 and created<?').run(before);
   }

@@ -6,6 +6,7 @@ import {randomBytes,randomUUID,createHash,createCipheriv} from 'node:crypto';
 import {qrHeaders,validQrSignature,requiresServiceWindow,isQrAccount} from '../lib/qr-protocol.mjs';
 import {createQrClient,qrConfiguration} from '../lib/whatsapp-qr.mjs';
 import {messageContent} from '../public/message-content.js';
+import {conversationWaitingSince} from '../public/inbox-domain.mjs';
 
 test('legacy accounts retain official transport; QR configuration never accepts form-provided arbitrary hosts',()=>{
   assert.equal(requiresServiceWindow({channel:'whatsapp',secret:'{}'}),true);
@@ -39,13 +40,16 @@ test('real API + PostgreSQL: QR creation, admin/tenant guards, webhook deduplica
     await query("insert into users(id,tenant,name,email,hash,role,accounts) values($1,$2,'Operador',$3,'unused',$4,'[]')",[user.id,user.tenant,role+'@test.invalid',user.role]);
     await query('insert into sessions(id,"user",expires) values($1,$2,$3)',[createHash('sha256').update(role).digest('hex'),user.id,Date.now()+3600000]);
   }
-  const originalFetch=globalThis.fetch,calls=[];let qrMedia=Buffer.from('image bytes'),sendCount=0;
+  const originalFetch=globalThis.fetch,calls=[];let qrMedia=Buffer.from('image bytes'),sendCount=0,revokeFailure=false;
   globalThis.fetch=async(url,options={})=>{
     url=String(url);calls.push({url,options});const path=new URL(url).pathname;
     if(url.startsWith('https://gateway.test/')){
       assert.equal(validQrSignature(secret,options.method,path,new Headers(options.headers),options.body||''),true);
       if(path.endsWith('/messages'))return Response.json({external:'sent-from-qr-'+(++sendCount)});
+      if(path.endsWith('/revoke'))return revokeFailure?Response.json({error:'Exclusão sem confirmação',definite:false},{status:502}):Response.json({ok:true,external:'revoke-confirmation'});
+      if(path.endsWith('/react')){const input=JSON.parse(options.body);return Response.json({ok:true,external:input.idempotencyKey,timestamp:Date.now()});}
       if(path.includes('/media/'))return new Response(qrMedia,{headers:{'content-type':'image/png'}});
+      if(path.endsWith('/disconnect'))return Response.json({status:'disconnected',connected:false});
       return Response.json({transport:'qr',status:'connected',connected:true,phone:'5534888888888'});
     }
     if(url.startsWith('https://graph.facebook.com/'))return Response.json({messages:[{id:'sent-meta'}]});
@@ -90,6 +94,101 @@ test('real API + PostgreSQL: QR creation, admin/tenant guards, webhook deduplica
     const echo={...event,id:'echo-1',message:{...event.message,external:'echo-1',fromMe:true,timestamp:Date.now(),body:'Resposta no celular'}};
     assert.equal((await webhook(echo)).status,200);assert.equal((await webhook(echo)).status,200);
     const mirrored=(await query("select * from messages where external='echo-1'" )).rows;assert.equal(mirrored.length,1);assert.equal(mirrored[0].operator_name,'WhatsApp vinculado');assert.equal(mirrored[0].operator_id,null);
+    const phoneSnapshot=await (await api('state')).json(),phoneConversation=phoneSnapshot.conversations.find(c=>c.id===conversation.id);
+    assert.equal(conversationWaitingSince({...phoneConversation,assigned_to:null}),null);
+    const reaction=async(id,fromMe,emoji,target='sent-from-qr-1',timestamp=Date.now())=>{
+      const value={...event,id,message:{...event.message,external:id,fromMe,timestamp,kind:'reaction',body:'[Reação]',reaction:{target,emoji}}};
+      assert.equal((await webhook(value)).status,200);
+    };
+    const reactionState=async()=>{const state=await (await api('state')).json();return state.conversations.find(c=>c.id===conversation.id).messages.find(m=>m.id===outbound.id).reactions;};
+    const beforeReaction=(await query('select status,last_inbound,updated from conversations where id=$1',[conversation.id])).rows[0];
+    const messageCount=(await query('select count(*) as n from messages')).rows[0].n;
+    await reaction('customer-reaction',false,'👍');await reaction('customer-reaction',false,'👍');
+    await reaction('phone-reaction',true,'❤️');
+    assert.deepEqual((await reactionState()).map(r=>[r.from_me,r.emoji]),[[false,'👍'],[true,'❤️']]);
+    await reaction('phone-change',true,'😂');
+    assert.deepEqual((await reactionState()).map(r=>[r.from_me,r.emoji]),[[false,'👍'],[true,'😂']]);
+    await reaction('phone-remove',true,'');
+    assert.deepEqual((await reactionState()).map(r=>r.emoji),['👍']);
+    await reaction('phone-delayed',true,'😮','sent-from-qr-1',Date.now()-5000);
+    assert.deepEqual((await reactionState()).map(r=>r.emoji),['👍']);
+    assert.deepEqual((await query('select status,last_inbound,updated from conversations where id=$1',[conversation.id])).rows[0],beforeReaction);
+    assert.equal((await query('select count(*) as n from messages')).rows[0].n,messageCount);
+    await reaction('customer-remove',false,'');assert.deepEqual(await reactionState(),[]);
+    assert.ok(messageContent({body:'Texto',reactions:[{from_me:true,emoji:'👍'}]},v=>v).includes('Reação pelo WhatsApp vinculado'));
+    const reactPath=`messages/${outbound.id}/react`,reactionRequest={emoji:'👏',requestId:randomUUID()};
+    assert.equal((await api(reactPath,{...reactionRequest,emoji:'invalid'})).status,400);
+    assert.equal((await api(reactPath,{...reactionRequest,requestId:'invalid'})).status,400);
+    assert.equal((await api(reactPath,reactionRequest,'outsider')).status,404);
+    assert.equal((await api(reactPath,reactionRequest,'agent')).status,403);
+    assert.equal((await api(reactPath,reactionRequest)).status,200);
+    assert.equal((await api(reactPath,reactionRequest)).status,200);
+    assert.deepEqual((await reactionState()).map(r=>r.emoji),['👏']);
+    assert.equal((await query('select count(*) as n from whatsapp_reactions where event_external=$1',['reaction:'+reactionRequest.requestId])).rows[0].n,1);
+    const sentReaction=JSON.parse(calls.filter(c=>c.url.endsWith('/react')).at(-1).options.body);
+    assert.equal(sentReaction.external,outbound.external);assert.equal(sentReaction.fromMe,true);
+    for(const emoji of ['🦋','🇧🇷','👍🏿','👨‍👩‍👧‍👦']){
+      assert.equal((await api(reactPath,{emoji,requestId:randomUUID()})).status,200);
+      assert.equal(JSON.parse(calls.filter(c=>c.url.endsWith('/react')).at(-1).options.body).emoji,emoji);
+      assert.ok((await reactionState()).some(r=>r.emoji===emoji));
+    }
+    const sentBeforeInvalid=calls.filter(c=>c.url.endsWith('/react')).length;
+    for(const emoji of [null,123,'👍👍','<script>','texto comum'])assert.equal((await api(reactPath,{emoji,requestId:randomUUID()})).status,400);
+    assert.equal(calls.filter(c=>c.url.endsWith('/react')).length,sentBeforeInvalid);
+    assert.equal((await api(reactPath,{emoji:'',requestId:randomUUID()})).status,200);assert.deepEqual(await reactionState(),[]);
+    assert.equal((await api(`messages/${mediaMessage.id}/react`,{emoji:'❤️',requestId:randomUUID()})).status,200);
+    const receivedReaction=JSON.parse(calls.filter(c=>c.url.endsWith('/react')).at(-1).options.body);
+    assert.equal(receivedReaction.external,'incoming-image');assert.equal(receivedReaction.fromMe,false);
+    await query('update users set accounts=$1,role=$2 where id=$3',[JSON.stringify([aid]),'receptionist',users.agent.id]);
+    const receptionistState=await (await api('state',undefined,'agent')).json(),phoneMessage=receptionistState.conversations.find(c=>c.id===conversation.id).messages.find(m=>m.id===mirrored[0].id);
+    assert.equal(phoneMessage.operator_id,null);assert.equal(phoneMessage.can_delete,true);assert.equal(phoneMessage.can_react,true);
+    await query('update users set role=$1 where id=$2',['agent',users.agent.id]);
+    const deletedEvent=async(id,target,fromMe=true)=>{
+      const value={...event,id,message:{...event.message,external:id,fromMe,timestamp:Date.now(),kind:'deletion',body:'[Mensagem excluída no WhatsApp]',deletion:{target}}};
+      assert.equal((await webhook(value)).status,200);
+    };
+    const beforeDeletion=(await query('select status,last_inbound,updated from conversations where id=$1',[conversation.id])).rows[0];
+    const deletePath=`messages/${outbound.id}/delete`;
+    assert.equal((await api(deletePath,{confirm:true},'outsider')).status,404);
+    await query('update users set accounts=$1 where id=$2',[JSON.stringify([aid]),users.agent.id]);
+    await query('update conversations set assigned_to=$1 where id=$2',[users.agent.id,conversation.id]);
+    assert.equal((await api(deletePath,{confirm:true},'agent')).status,403);
+    await query('update users set role=$1 where id=$2',['viewer',users.agent.id]);
+    assert.equal((await api(deletePath,{confirm:true},'agent')).status,403);
+    await query('update users set role=$1 where id=$2',['agent',users.agent.id]);
+    await query('update messages set operator_id=$1 where id=$2',[users.agent.id,outbound.id]);
+    assert.equal((await api(deletePath,{},'agent')).status,400);
+    revokeFailure=true;assert.equal((await api(deletePath,{confirm:true},'agent')).status,502);revokeFailure=false;
+    assert.equal((await query('select * from whatsapp_deletions')).rows.length,0);
+    const originalBody=outbound.body;
+    assert.equal((await api(deletePath,{confirm:true},'agent')).status,200);
+    const revokes=calls.filter(c=>c.url.endsWith('/revoke')).length;
+    assert.equal((await api(deletePath,{confirm:true},'agent')).status,200);
+    assert.equal(calls.filter(c=>c.url.endsWith('/revoke')).length,revokes);
+    let deletionRow=(await query('select * from whatsapp_deletions')).rows[0];
+    assert.equal(deletionRow.actor,users.agent.id);assert.equal(deletionRow.source,'central');
+    await deletedEvent('revoke-confirmation',outbound.external);
+    await deletedEvent('revoke-confirmation',outbound.external);
+    deletionRow=(await query('select * from whatsapp_deletions')).rows[0];
+    assert.equal(deletionRow.source,'whatsapp');assert.equal(deletionRow.actor,users.agent.id);
+    assert.equal((await query('select body from messages where id=$1',[outbound.id])).rows[0].body,originalBody);
+    assert.equal((await query('select count(*) as n from messages')).rows[0].n,messageCount);
+    const deletedState=await (await api('state',undefined,'agent')).json(),deletedMessage=deletedState.conversations.find(c=>c.id===conversation.id).messages.find(m=>m.id===outbound.id);
+    assert.equal(deletedMessage.can_delete,false);assert.ok(deletedMessage.deletion);
+    const html=messageContent(deletedMessage,v=>v);assert.ok(html.includes('Excluída no WhatsApp'));assert.ok(html.includes(originalBody));
+    await deletedEvent('delete-before-message','delayed-message',false);
+    assert.equal((await query('select count(*) as n from messages')).rows[0].n,messageCount);
+    assert.equal((await query('select status,last_inbound,updated from conversations where id=$1',[conversation.id])).rows[0].updated,beforeDeletion.updated);
+    const delayed={...event,id:'delayed-message',message:{...event.message,external:'delayed-message',timestamp:Date.now(),body:'Conteúdo preservado'}};
+    assert.equal((await webhook(delayed)).status,200);
+    const delayedState=await (await api('state',undefined,'agent')).json();
+    assert.ok(delayedState.conversations.find(c=>c.id===conversation.id).messages.find(m=>m.external===aid+':delayed-message').deletion);
+    await deletedEvent('delete-image','incoming-image',false);
+    assert.ok((await query('select media from messages where id=$1',[mediaMessage.id])).rows[0].media.qrId);
+    await query('update conversations set assigned_to=$1 where id=$2',[users.admin.id,conversation.id]);
+    const adEvent={...event,id:'qr-instagram-ad',message:{...event.message,customer:'5534991234567',external:'qr-instagram-ad',body:'Vim pelo anúncio',referral:{source_type:'ad',source_id:'120253089514020134',source_app:'instagram',headline:'Day Use',ctwa_clid:'click-id'}}};
+    assert.equal((await webhook(adEvent)).status,200);assert.equal((await webhook(adEvent)).status,200);
+    const adTouch=(await query("select * from crm_touches where event_key='qr-instagram-ad'")).rows;assert.equal(adTouch.length,1);assert.equal(adTouch[0].source,'paid');assert.equal(adTouch[0].ad_id,'120253089514020134');assert.equal(adTouch[0].referral.source_app,'instagram');
     const meta=randomUUID(),cid=randomUUID();
     await query("insert into accounts(id,tenant,name,channel,external,secret,mode) values($1,$2,'Official','whatsapp','123',$3,'live')",[meta,tenant,seal({token:'TOKEN',appSecret:'SECRET'})]);
     await query("insert into conversations(id,tenant,account,customer,name,status,updated,last_inbound,assigned_to) values($1,$2,$3,'5534999999999','Meta','open',$4,$4,$5)",[cid,tenant,meta,Date.now()-172800000,users.admin.id]);
@@ -158,5 +257,30 @@ test('real API + PostgreSQL: QR creation, admin/tenant guards, webhook deduplica
     const state=await (await api('state')).json(),visible=JSON.stringify(state);
     assert.ok(!visible.includes(secret));assert.ok(!visible.includes('TOKEN'));assert.ok(!visible.includes('APP_ENCRYPTION_KEY'));
     assert.equal(state.accounts.find(a=>a.id===aid).transport,'qr');assert.equal(state.accounts.find(a=>a.id===meta).transport,'meta');
+    const more=[];
+    for(const name of ['WhatsApp segundo número','WhatsApp terceiro número']){
+      const response=await api('accounts',{name,channel:'whatsapp',transport:'qr',mode:'live'});assert.equal(response.status,200);
+      const {id}=await response.json();more.push(id);assert.notEqual(id,aid);
+      assert.equal((await api(`accounts/${id}/qr/connect`,{})).status,200);
+      assert.ok(calls.some(c=>c.url.endsWith(`/sessions/${tenant}_${id}/connect`)));
+      const path='/webhooks/whatsapp-qr/'+id,value={...event,session:tenant+'_'+id,message:{...event.message,timestamp:Date.now()}},body=JSON.stringify(value);
+      assert.equal((await app.fetch(new Request('https://central.test'+path,{method:'POST',headers:qrHeaders(secret,'POST',path,body),body}))).status,200);
+      const row=(await query('select id,account from conversations where account=$1 and customer=$2',[id,event.message.customer])).rows[0];assert.ok(row);assert.notEqual(row.id,conversation.id);
+      assert.equal((await query('select external from accounts where id=$1',[id])).rows[0].external,id);
+    }
+    assert.equal(new Set([aid,...more]).size,3);
+    const beforeDisconnect=calls.length;assert.equal((await api(`accounts/${more[0]}/qr/disconnect`,{})).status,200);
+    assert.deepEqual(calls.slice(beforeDisconnect).filter(c=>c.url.endsWith('/disconnect')).map(c=>new URL(c.url).pathname),[`/sessions/${tenant}_${more[0]}/disconnect`]);
+    assert.equal((await api(`accounts/${aid}/qr`)).status,200);assert.equal((await api(`accounts/${more[1]}/qr`)).status,200);
+    const deletion=`accounts/${more[1]}/delete`,removeInput={name:'WhatsApp terceiro número',confirmed:true};
+    assert.equal((await api(deletion,removeInput,'agent')).status,403);
+    assert.equal((await api(deletion,removeInput,'outsider')).status,403);
+    assert.equal((await api(deletion,removeInput)).status,200);
+    assert.equal((await api(`accounts/${more[1]}/activation`,{enabled:true})).status,410);
+    assert.equal((await api(`accounts/${more[1]}/qr/connect`,{})).status,410);
+    assert.equal((await api('accounts',{id:more[1],name:'Restored',mode:'live',transport:'qr'})).status,410);
+    const afterRemoval=await (await api('state')).json();assert.ok(afterRemoval.accounts.find(a=>a.id===more[1]).deleted_at);
+    assert.ok(afterRemoval.conversations.some(c=>c.account===more[1]&&c.status==='resolved'));
+    assert.equal((await api(`accounts/${aid}/qr`)).status,200);
   }finally{globalThis.fetch=originalFetch;await db.close();}
 });

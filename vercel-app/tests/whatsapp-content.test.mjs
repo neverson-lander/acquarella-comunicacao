@@ -19,22 +19,25 @@ test('WhatsApp parser retains media IDs, voice notes and emoji reactions includi
 });
 async function fixture(){
  const db=new PGlite();
- for(const file of (await readdir(new URL('../supabase/migrations/',import.meta.url))).sort())if(!file.includes('whatsapp_content'))await db.exec((await readFile(new URL('../supabase/migrations/'+file,import.meta.url),'utf8')).replace('create extension if not exists pgcrypto;',''));
+ for(const file of (await readdir(new URL('../supabase/migrations/',import.meta.url))).sort())if(!file.includes('whatsapp_content')&&!file.includes('whatsapp_reaction_authors'))await db.exec((await readFile(new URL('../supabase/migrations/'+file,import.meta.url),'utf8')).replace('create extension if not exists pgcrypto;',''));
  const pool={query:async(sql,args=[])=>{const r=await db.query(sql,args);return {...r,rowCount:r.affectedRows??r.rows.length};}},tenant=randomUUID(),aid=randomUUID(),cid=randomUUID();
  await pool.query('insert into tenants(id,name,phone) values($1,$2,$3)',[tenant,'Company','5534988748139']);
  await pool.query("insert into accounts(id,tenant,name,channel,external,mode,secret) values($1,$2,'WhatsApp','whatsapp','123','live','unused')",[aid,tenant]);
  await pool.query("insert into conversations(id,tenant,account,customer,name,status,last_inbound,updated) values($1,$2,$3,'5534999990000','Maria','resolved',$4,$4)",[cid,tenant,aid,stamp-1000]);
- return {db,pool,tenant,aid,cid,account:(await pool.query('select * from accounts where id=$1',[aid])).rows[0],migrate:async()=>db.exec(await readFile(new URL('../supabase/migrations/202610040011_whatsapp_content.sql',import.meta.url),'utf8'))};
+ return {db,pool,tenant,aid,cid,account:(await pool.query('select * from accounts where id=$1',[aid])).rows[0],migrate:async()=>{for(const name of ['202610040011_whatsapp_content.sql','202610220002_whatsapp_reaction_authors.sql'])await db.exec(await readFile(new URL('../supabase/migrations/'+name,import.meta.url),'utf8'));}};
 }
 test('migration recovers old image/audio metadata and reactions from retained events',async()=>{
  const f=await fixture();try{
   const event=payload([...types,{type:'reaction',reaction:{message_id:'outbound',emoji:'👍'}}]);
   await f.pool.query("insert into events(id,tenant,payload,state,created) values('historical',$1,$2,'done',$3)",[f.tenant,JSON.stringify(event),stamp]);
+  const own={...payload([{id:'phone-history',type:'reaction',reaction:{message_id:'outbound',emoji:'❤️'}}]),qrEcho:true};
+  await f.pool.query("insert into events(id,tenant,payload,state,created) values('historical-phone',$1,$2,'done',$3)",[f.tenant,JSON.stringify(own),stamp]);
   for(let i=0;i<4;i++)await f.pool.query("insert into messages(id,conversation,direction,body,created,state,external) values($1,$2,'in','[Anexo]',$3,'received',$4)",[randomUUID(),f.cid,stamp,f.aid+':event-'+i]);
   await f.migrate();
   const messages=(await f.pool.query('select kind,media from messages order by external')).rows;
   assert.equal(messages[0].kind,'image');assert.equal(messages[0].media.id,'456');assert.equal(messages[1].kind,'audio');assert.equal(messages[3].kind,'reaction');
-  assert.equal((await createWhatsAppContent({pool:f.pool}).reactions({tenant:f.tenant,account:f.aid,customer:'5534999990000'}))[0].emoji,'👍');
+  const recovered=await createWhatsAppContent({pool:f.pool}).reactions({tenant:f.tenant,account:f.aid,customer:'5534999990000'});
+  assert.deepEqual(recovered.map(r=>[r.from_me,r.emoji]),[[false,'👍'],[true,'❤️']]);
  }finally{await f.db.close();}
 });
 test('receiving media saves attachments; reactions deduplicate, replace and remove without reopening the case',async()=>{
@@ -69,8 +72,8 @@ test('media proxy refreshes expiring URLs, streams bytes/ranges and keeps tokens
  await assert.rejects(whatsappMediaResponse({...request,fetcher:async()=>new Response(JSON.stringify({url:'https://lookaside.fbsbx.com/a',mime_type:'text/html'}))}),/não permitido/);
  await assert.rejects(whatsappMediaResponse({...request,fetcher:async()=>new Response('not found',{status:404})}),e=>e.status===404);
 });
-test('media route enforces login, channel/tenant and conversation ownership before contacting Meta',async()=>{
- const f=await fixture();try{
+test('media route protects live ownership and permits authorized read-only access to archived attachments',async()=>{
+ const f=await fixture(),originalFetch=globalThis.fetch;let fetched=0;globalThis.fetch=async url=>{fetched++;return String(url).startsWith('https://graph.facebook.com/')?new Response(JSON.stringify({url:'https://lookaside.fbsbx.com/media',mime_type:'image/png'})):new Response('image',{headers:{'content-type':'image/png'}});};try{
   await f.migrate();globalThis.__acquarellaPool=f.pool;
   const key=randomBytes(32);process.env.APP_ENCRYPTION_KEY=key.toString('base64');const iv=randomBytes(12),cipher=createCipheriv('aes-256-gcm',key,iv),body=Buffer.concat([cipher.update('{"token":"PRIVATE"}'),cipher.final()]);
   await f.pool.query('update accounts set secret=$1',[Buffer.concat([iv,cipher.getAuthTag(),body]).toString('base64')]);
@@ -81,9 +84,28 @@ test('media route enforces login, channel/tenant and conversation ownership befo
   assert.equal((await app.fetch(new Request(url))).status,401);
   assert.equal((await app.fetch(new Request(url,{headers:{cookie:'session=viewer-session'}}))).status,403);
   await f.pool.query('update users set accounts=$2 where id=$1',[uid,JSON.stringify([f.aid])]);
-  // An unassigned resolved case remains outside the viewer's attendance scope.
-  assert.equal((await app.fetch(new Request(url,{headers:{cookie:'session=viewer-session'}}))).status,403);
+  // Closed cases can be read through Finalizados after channel access is checked.
+  assert.equal(fetched,0);const archivedResponse=await app.fetch(new Request(url,{headers:{cookie:'session=viewer-session'}}));assert.equal(archivedResponse.status,200);assert.equal(await archivedResponse.text(),'image');assert.equal(fetched,2);
+  await f.pool.query("update conversations set status='open',assigned_to=$2 where id=$1",[f.cid,uid]);
+  const other=randomUUID();await f.pool.query("insert into users(id,tenant,name,email,hash,role,accounts) values($1,$2,'Other','other@test.invalid','unused','agent',$3)",[other,f.tenant,JSON.stringify([f.aid])]);await f.pool.query('update conversations set assigned_to=$2 where id=$1',[f.cid,other]);assert.equal((await app.fetch(new Request(url,{headers:{cookie:'session=viewer-session'}}))).status,403);assert.equal(fetched,2);
   const html=messageContent({id:mid,kind:'image',media:{id:'456',caption:'<script>bad</script>'},reactions:[{emoji:'👍'}]},v=>String(v).replaceAll('<','&lt;').replaceAll('>','&gt;'));
   assert.ok(html.includes('&lt;script&gt;'));assert.ok(html.includes('message-reaction'));assert.ok(!html.includes('PRIVATE'));assert.ok(html.includes('/api/messages/'));
- }finally{delete globalThis.__acquarellaPool;await f.db.close();}
+ }finally{globalThis.fetch=originalFetch;delete globalThis.__acquarellaPool;await f.db.close();}
+});
+
+
+test('QR customer edits update the original bubble without reopening attendance or duplicating messages',async()=>{
+ const f=await fixture();try{
+  await f.migrate();const {qrInboundPayload}=await import('../lib/whatsapp-qr.mjs');let tick=stamp+5000;
+  const handler=createInboundHandler({one:async(s,v)=>(await f.pool.query(s,v)).rows[0],run:f.pool.query,id:randomUUID,now:()=>tick,profile:async()=>({}),queue:async()=>{throw Error('Edits cannot be forwarded as new messages');}});
+  const mid=randomUUID();await f.pool.query("insert into messages(id,conversation,direction,body,created,state,external) values($1,$2,'in','Por favot',$3,'received',$4)",[mid,f.cid,stamp,f.aid+':original']);
+  const before=(await f.pool.query('select * from conversations where id=$1',[f.cid])).rows[0];
+  const event=body=>qrInboundPayload(f.account,{session:f.tenant+'_'+f.aid,id:'event',message:{customer:'5534999990000',external:'edit-event',kind:'edit',fromMe:false,body,timestamp:tick,edit:{target:'original'}}});
+  await handler(f.account,event('Por favor'));await handler(f.account,event('Por favor'));
+  let row=(await f.pool.query('select * from messages where id=$1',[mid])).rows[0];assert.equal(row.body,'Por favor');assert.equal(row.media.edited.original_body,'Por favot');assert.equal(row.media.edited.source,'whatsapp');
+  tick=stamp+3000;await handler(f.account,event('older edit'));row=(await f.pool.query('select * from messages where id=$1',[mid])).rows[0];assert.equal(row.body,'Por favor');
+  const after=(await f.pool.query('select * from conversations where id=$1',[f.cid])).rows[0];assert.equal(after.status,'resolved');assert.equal(after.last_inbound,before.last_inbound);assert.equal((await f.pool.query('select count(*) as total from messages')).rows[0].total,1);
+  const spoof=event('Wrong customer');spoof.entry[0].changes[0].value.messages[0].from='5534999990001';await handler(f.account,spoof);assert.equal((await f.pool.query('select body from messages where id=$1',[mid])).rows[0].body,'Por favor');
+  const html=messageContent(row,v=>String(v));assert.ok(html.includes('Editada'));assert.ok(!html.includes('data-edit-history'));
+ }finally{await f.db.close();}
 });

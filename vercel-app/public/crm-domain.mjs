@@ -1,13 +1,13 @@
 export const STAGES = [['new','Novo contato'],['qualified','Qualificado'],['proposal','Proposta'],['scheduled','Agendado'],['attended','Atendimento realizado'],['won','Venda'],['lost','Perdido']];
 import {metaMediaUrl} from './meta-media.js';
 export const SOURCES = { paid:'Campanha paga', organic:'Orgânico', unknown:'Não identificada' };
-export const realOpportunity=o=>o.mode==='live'&&!String(o.customer||'').startsWith('demo-');
+export const realOpportunity=o=>o.attendance_eligible!==false&&o.mode==='live'&&!String(o.customer||'').startsWith('demo-');
 
 const text = (v,max=300) => typeof v==='string' ? v.slice(0,max) : '';
 export function referralTouch(referral) {
   if (!referral || typeof referral!=='object' || Array.isArray(referral)) return null;
   const r={};
-  for(const key of ['source_type','source_id','source_url','headline','body','ad_id','ctwa_clid','ref','source','type']) {
+  for(const key of ['source_type','source_id','source_url','source_app','headline','body','ad_id','ctwa_clid','ref','source','type']) {
     if(typeof referral[key]==='string')r[key]=text(referral[key],key==='body'?2000:600);
   }
   const ad=text(r.ad_id || (r.source_type==='ad'?r.source_id:''));
@@ -30,15 +30,34 @@ export function cents(value) {
 }
 
 export function selectedTouch(opportunity, model='first') {
-  const touches=[...(opportunity.touches||[])].sort((a,b)=>a.created-b.created || String(a.id).localeCompare(String(b.id)));
+  const all=[...(opportunity.touches||[])].filter(t=>t.ignored_for_attribution!==true).sort((a,b)=>a.created-b.created || String(a.id).localeCompare(String(b.id)));
+  const start=all.filter(t=>t.referral?.attendance_start).at(-1);
+  const touches=start?all.filter(t=>t.created>=start.created):all;
   const firstSale=(opportunity.conversions||[]).filter(e=>e.kind==='sale'&&!e.voided).sort((a,b)=>a.occurred-b.occurred)[0];
   if(model==='last_paid'&&firstSale?.attribution?.last_paid)return firstSale.attribution.last_paid;
   const correction=touches.filter(t=>t.evidence==='manual'&&t.referral?.correct_first).at(-1);
-  return (model==='last_paid'?touches.filter(t=>t.source==='paid').at(-1):correction)||touches[0]||{source:'unknown',evidence:'legacy',ad_id:''};
+  return (model==='last_paid'?touches.filter(t=>t.source==='paid').at(-1):correction)||start||touches[0]||{source:'unknown',evidence:'legacy',ad_id:''};
+}
+
+export const attendanceStart=touches=>Math.max(0,...(touches||[]).filter(t=>t.ignored_for_attribution!==true&&t.referral?.attendance_start).map(t=>Number(t.created)||0));
+
+export function firstRecordedTouch(touches,firstContact){
+  const next=Math.min(Infinity,...touches.filter(t=>!t.ignored_for_attribution&&t.referral?.attendance_start&&t.created>firstContact).map(t=>Number(t.created)));
+  return selectedTouch({touches:touches.filter(t=>t.created<next)});
+}
+export function touchAt(touches,stamp){
+  const next=Math.min(Infinity,...touches.filter(t=>!t.ignored_for_attribution&&t.referral?.attendance_start&&t.created>stamp).map(t=>Number(t.created)));
+  return selectedTouch({touches:touches.filter(t=>t.created<=stamp||t.created<next&&t.evidence==='manual'&&t.referral?.correct_first)});
+}
+
+export function automaticPaidTouch(opportunity) {
+  const current=selectedTouch(opportunity);
+  if(current.source!=='paid'||!current.ad_id)return null;
+  return (opportunity.touches||[]).find(t=>t.ignored_for_attribution!==true&&t.evidence==='webhook'&&t.source==='paid'&&t.ad_id===current.ad_id)||null;
 }
 
 const median=xs=>{if(!xs.length)return null;xs.sort((a,b)=>a-b);const n=xs.length;return n%2?xs[(n-1)/2]:(xs[n/2-1]+xs[n/2])/2;};
-export function summarize(opportunities, conversions, messages, model='first', grouping='campaign') {
+export function summarize(opportunities, conversions, messages, model='first', grouping='campaign',bookings=[]) {
   const groups=new Map(), operators=new Map();
   const bucket=key=>{if(!groups.has(key))groups.set(key,{key,leads:0,qualified:0,appointments:0,attendances:0,sales:0,clients:new Set(),revenue_cents:0,times:[]});return groups.get(key);};
   const operator=(key,name)=>{key||='unassigned';if(!operators.has(key))operators.set(key,{key,name:name||'Sem responsável',assigned:0,replies:0,appointments:0,attendances:0,sales:0,revenue_cents:0,response_times:[]});return operators.get(key);};
@@ -49,7 +68,7 @@ export function summarize(opportunities, conversions, messages, model='first', g
     operator(o.owner,o.owner_name).assigned++;
     const events=conversions.filter(e=>e.opportunity===o.id&&!e.voided);
     for(const [kind,field] of [['appointment','appointments'],['attendance','attendances'],['sale','sales']]) {
-      const matching=events.filter(e=>e.kind===kind);if(matching.length)g[field]++;
+      const matching=events.filter(e=>e.kind===kind);if(matching.length||kind==='appointment'&&bookings.some(b=>b.conversation===o.conversation))g[field]++;
     }
     const sales=events.filter(e=>e.kind==='sale');
     if(sales.length){g.clients.add(o.contact);g.times.push(Math.max(0,Math.min(...sales.map(e=>e.occurred))-o.first_contact));}

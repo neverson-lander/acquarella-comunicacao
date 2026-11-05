@@ -2,7 +2,7 @@ export async function reopenInbound(run,conversation,stamp,inbound){
   await run(`with previous as (
     select id,tenant,status,assigned_to from conversations where id=$1 for update
   ), changed as (
-    update conversations c set updated=$2,last_inbound=greatest(c.last_inbound,$3),status='open',
+    update conversations c set updated=$2,last_inbound=greatest(c.last_inbound,$3),status='open',attendance_eligible=true,
       assigned_to=case when p.status='resolved' then null else c.assigned_to end,
       assigned_at=case when p.status='resolved' then null else c.assigned_at end
     from previous p where c.id=p.id

@@ -4,6 +4,8 @@ A versão atual de produção usa o código de **[`vercel-app/`](vercel-app/READ
 
 Inclui atendimento, CRM, anexos, canais oficiais da Meta e WhatsApp por aparelho vinculado. Cada canal permite configurar grade semanal, fuso horário, telefone de destino e encaminhamento dentro, fora ou a qualquer horário. A ponte de Instagram e Messenger pode enviar pelo WhatsApp por QR e devolver as respostas citadas ao canal de origem.
 
+A agenda CashBarber pode ser consultada e usada durante a conversa pelo painel **Agenda CashBarber**. A conexão é feita pelo administrador em Configurações; um [conector persistente](cashbarber-bridge/README.md) calcula preços por cliente/plano e verifica os registros após salvar. A central agenda um serviço por vez e permite cadastrar clientes no CashBarber durante o atendimento. A base externa pode ser importada em Cadastro de contatos.
+
 - [Implantação na VPS, atualização e backups](deploy/vps/README.md)
 - [Serviço WhatsApp por QR e testes locais](whatsapp-qr-gateway/README.md)
 - [Aplicação e configuração alternativa Vercel/Supabase](vercel-app/README.md)

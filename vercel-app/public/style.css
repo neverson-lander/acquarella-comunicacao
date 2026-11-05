@@ -4,3 +4,6 @@
 #modal fieldset{min-width:0;border:1px solid var(--border,#ddd);border-radius:12px;padding:16px;margin:12px 0}#modal legend{padding:0 6px;font-weight:600;font-size:14px}
 
 .alert-phone-editor h3{font-size:14px;margin:8px 0 12px}.alert-phone-row{display:flex;gap:8px;align-items:center}.alert-phone-row label{flex:1;min-width:0}.alert-phone-row button{flex:none;margin-top:5px}.alert-phone-editor [data-add-alert-phone]{margin:4px 0 8px}
+
+/* Attendance evaluations */
+.ai-evaluation{margin-top:16px;padding:16px;border:1px solid var(--border,#dce5e7);border-radius:12px;background:#f4f8f8;overflow-wrap:anywhere}.ai-evaluation h4{margin:10px 0}.ai-evaluation .secondary{margin-top:6px}.ai-evaluation ul{padding-left:22px}[data-ai-form]{display:grid;gap:12px;margin-top:16px}[data-ai-form] textarea{width:100%;box-sizing:border-box}#modal pre{white-space:pre-wrap;overflow-wrap:anywhere}

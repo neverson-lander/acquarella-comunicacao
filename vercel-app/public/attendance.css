@@ -4,3 +4,10 @@
 .attendance-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px;border-bottom:1px solid var(--line);background:#fff}
 .attendance-toolbar small{flex:1;min-width:100px;color:#577681}.attendance-toolbar button{padding:7px 10px;font-size:11px}
 @media(max-width:650px){.attendance-tabs{gap:5px}.attendance-tabs button{font-size:11px;padding:8px}.attendance-toolbar button{flex:1;min-width:90px}}
+
+.queue-close-list{max-height:45dvh;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:0 12px}.queue-close-list .toggle-row{margin:0;padding:12px 0;border-bottom:1px solid var(--line);gap:16px}.queue-close-list .toggle-row:last-child{border-bottom:0}.queue-close-list small{display:block;margin-top:4px;color:var(--muted);font-size:11px}.queue-close-list input[type=checkbox]{flex-shrink:0}
+#close-queue[hidden]{display:none}
+
+.channel-delete{margin-top:12px;color:#a52147;border-color:#eccbd4;background:#fff9fa}.channel-delete:hover{background:#fdebf0}
+
+#modal-form [data-source-ad][hidden]{display:none!important}

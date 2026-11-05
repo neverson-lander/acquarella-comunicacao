@@ -10,6 +10,13 @@ export function contactPhoneKey(value){
   let phone;try{phone=normalizeContactPhone(value);}catch{return '';}
   return /^55[1-9]\d9[6-9]\d{7}$/.test(phone)?phone.slice(0,4)+phone.slice(5):phone;
 }
+export function contactPhoneVariants(value){
+  let phone;try{phone=normalizeContactPhone(value);}catch{return [];}
+  const key=contactPhoneKey(phone);
+  // Only Brazilian mobile identities have an equivalent ninth-digit form.
+  if(/^55[1-9]\d[6-9]\d{7}$/.test(key))return [key.slice(0,4)+'9'+key.slice(4),key];
+  return [phone];
+}
 export function displayContactPhone(value){const phone=String(value||''),national=phone.startsWith('55')?phone.slice(2):phone;if(!/^\d{10,11}$/.test(national))return phone?'+'+phone:'';return `(${national.slice(0,2)}) ${national.slice(2,-4)}-${national.slice(-4)}`;}
 export const csvHeaders=['Nome','Telefone','Email','Tags','Observações','Remover de campanhas'];
 const headerKey=value=>String(value||'').replace(/^\uFEFF/,'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]/g,'');

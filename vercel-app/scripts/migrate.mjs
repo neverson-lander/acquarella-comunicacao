@@ -210,6 +210,86 @@ try {
     await client.query(await readFile(new URL('../supabase/migrations/'+contactsMigration+'.sql',import.meta.url),'utf8'));
     await client.query('insert into app_migrations(id) values($1)',[contactsMigration]);
   }
+  const deletionMigration='202610200001_channel_deletion';
+  if(!(await client.query('select id from app_migrations where id=$1',[deletionMigration])).rowCount){
+    await client.query(await readFile(new URL('../supabase/migrations/'+deletionMigration+'.sql',import.meta.url),'utf8'));
+    await client.query('insert into app_migrations(id) values($1)',[deletionMigration]);
+  }
+  const outreachMigration='202610210001_contact_outreach';
+  if(!(await client.query('select id from app_migrations where id=$1',[outreachMigration])).rowCount){
+    await client.query(await readFile(new URL('../supabase/migrations/'+outreachMigration+'.sql',import.meta.url),'utf8'));
+    await client.query('insert into app_migrations(id) values($1)',[outreachMigration]);
+  }
+  const bulkReasonMigration='202610210002_bulk_closure_reason';
+  if(!(await client.query('select id from app_migrations where id=$1',[bulkReasonMigration])).rowCount){
+    await client.query(await readFile(new URL('../supabase/migrations/'+bulkReasonMigration+'.sql',import.meta.url),'utf8'));
+    await client.query('insert into app_migrations(id) values($1)',[bulkReasonMigration]);
+  }
+  const instagramAttendanceMigration='202610210003_instagram_attendance';
+  if(!(await client.query('select id from app_migrations where id=$1',[instagramAttendanceMigration])).rowCount){
+    await client.query(await readFile(new URL('../supabase/migrations/'+instagramAttendanceMigration+'.sql',import.meta.url),'utf8'));
+    await client.query('insert into app_migrations(id) values($1)',[instagramAttendanceMigration]);
+  }
+  const socialAttributionMigration='202610210004_instagram_social_attribution';
+  if(!(await client.query('select id from app_migrations where id=$1',[socialAttributionMigration])).rowCount){
+    await client.query(await readFile(new URL('../supabase/migrations/'+socialAttributionMigration+'.sql',import.meta.url),'utf8'));
+    await client.query('insert into app_migrations(id) values($1)',[socialAttributionMigration]);
+  }
+  const campaignChecksMigration='202610220001_campaign_booking_checks';
+  if(!(await client.query('select id from app_migrations where id=$1',[campaignChecksMigration])).rowCount){
+    await client.query(await readFile(new URL('../supabase/migrations/'+campaignChecksMigration+'.sql',import.meta.url),'utf8'));
+    await client.query('insert into app_migrations(id) values($1)',[campaignChecksMigration]);
+  }
+  const evaluationMigration='202610230001_attendance_evaluations';
+  if(!(await client.query('select id from app_migrations where id=$1',[evaluationMigration])).rowCount){
+    await client.query(await readFile(new URL('../supabase/migrations/'+evaluationMigration+'.sql',import.meta.url),'utf8'));
+    await client.query('insert into app_migrations(id) values($1)',[evaluationMigration]);
+  }
+  const quickRepliesMigration='202610240003_quick_replies';
+  if(!(await client.query('select id from app_migrations where id=$1',[quickRepliesMigration])).rowCount){
+    await client.query(await readFile(new URL('../supabase/migrations/'+quickRepliesMigration+'.sql',import.meta.url),'utf8'));
+    await client.query('insert into app_migrations(id) values($1)',[quickRepliesMigration]);
+  }
+  const signatureMigration='202610240004_reply_signature';
+  if(!(await client.query('select id from app_migrations where id=$1',[signatureMigration])).rowCount){
+    await client.query(await readFile(new URL('../supabase/migrations/'+signatureMigration+'.sql',import.meta.url),'utf8'));
+    await client.query('insert into app_migrations(id) values($1)',[signatureMigration]);
+  }
+  const visualAttentionMigration='202610240005_visual_attention';
+  if(!(await client.query('select id from app_migrations where id=$1',[visualAttentionMigration])).rowCount){
+    await client.query(await readFile(new URL('../supabase/migrations/'+visualAttentionMigration+'.sql',import.meta.url),'utf8'));
+    await client.query('insert into app_migrations(id) values($1)',[visualAttentionMigration]);
+  }
+  const splitVisualAttentionMigration='202610240006_split_visual_attention';
+  if(!(await client.query('select id from app_migrations where id=$1',[splitVisualAttentionMigration])).rowCount){
+    await client.query(await readFile(new URL('../supabase/migrations/'+splitVisualAttentionMigration+'.sql',import.meta.url),'utf8'));
+    await client.query('insert into app_migrations(id) values($1)',[splitVisualAttentionMigration]);
+  }
+  const timingMigration='20261031175842_message_timing';
+  if(!(await client.query('select id from app_migrations where id=$1',[timingMigration])).rowCount){
+    await client.query(await readFile(new URL('../supabase/migrations/'+timingMigration+'.sql',import.meta.url),'utf8'));
+    await client.query('insert into app_migrations(id) values($1)',[timingMigration]);
+  }
+  const firstViewMigration='20261031181300_message_first_view';
+  if(!(await client.query('select id from app_migrations where id=$1',[firstViewMigration])).rowCount){
+    await client.query(await readFile(new URL('../supabase/migrations/'+firstViewMigration+'.sql',import.meta.url),'utf8'));
+    await client.query('insert into app_migrations(id) values($1)',[firstViewMigration]);
+  }
+  const notificationMigration='20261102233541_appointment_notifications';
+  if(!(await client.query('select id from app_migrations where id=$1',[notificationMigration])).rowCount){
+    await client.query(await readFile(new URL('../supabase/migrations/'+notificationMigration+'.sql',import.meta.url),'utf8'));
+    await client.query('insert into app_migrations(id) values($1)',[notificationMigration]);
+  }
+  const activeManagementMigration='20261103002510_active_message_management';
+  if(!(await client.query('select id from app_migrations where id=$1',[activeManagementMigration])).rowCount){
+    await client.query(await readFile(new URL('../supabase/migrations/'+activeManagementMigration+'.sql',import.meta.url),'utf8'));
+    await client.query('insert into app_migrations(id) values($1)',[activeManagementMigration]);
+  }
+  const mercadoPagoMigration='20261105152821_mercado_pago_settings';
+  if(!(await client.query('select id from app_migrations where id=$1',[mercadoPagoMigration])).rowCount){
+    await client.query(await readFile(new URL('../supabase/migrations/'+mercadoPagoMigration+'.sql',import.meta.url),'utf8'));
+    await client.query('insert into app_migrations(id) values($1)',[mercadoPagoMigration]);
+  }
   await configureAlertScheduler(client);
   await client.query('commit');
   console.log('Agendador de alertas ativo: verificação a cada minuto.');

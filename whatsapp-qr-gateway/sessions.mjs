@@ -3,7 +3,8 @@ import QRCode from 'qrcode';
 import pino from 'pino';
 import {randomUUID} from 'node:crypto';
 import {qrHeaders} from '../vercel-app/lib/qr-protocol.mjs';
-import {normalizeMessage,outboundContent,fetchAttachment,directJid,unwrap,jidPhone} from './messages.mjs';
+import {normalizeMessage,outboundContent,fetchAttachment,directJid,unwrap,jidPhone,resolveRecipient,deletionTarget,quotedMessage} from './messages.mjs';
+import {isMessageEdit} from './message-edits.mjs';
 
 export {BufferJSON};
 const failure=(message,status=409,definite=true)=>Object.assign(Error(message),{status,definite});
@@ -20,7 +21,8 @@ export class Sessions {
   async connect(id) {
     let s=this.sessions.get(id);
     if(s?.socket&&!s.stopped)return this.status(id);
-    if(!s&&this.sessions.size>=this.maximum)throw failure('Limite de sessões do serviço atingido.',429);
+    const active=[...this.sessions.values()].filter(session=>!session.stopped).length;
+    if((!s||s.stopped)&&active>=this.maximum)throw failure(`Limite de ${this.maximum} conexões WhatsApp simultâneas atingido. Desative um canal que não está em uso antes de conectar outro.`,429);
     if(!s){s={id,status:'connecting',qr:null,stopped:false,retries:0};this.sessions.set(id,s);}
     s.stopped=false;this.store.enable(id);
     try{await this.start(s);}catch{ s.status='unavailable';this.reconnect(s);throw failure('Não foi possível iniciar o WhatsApp. Tente novamente.',503);}
@@ -54,6 +56,21 @@ export class Sessions {
       shouldIgnoreJid:jid=>!directJid(jid)&&!jid.endsWith('@lid'),
       getMessage:async key=>this.store.get(s.id,`message:${key.id}`)});
     s.socket=socket;
+    socket.ev.on('messages.update',updates=>{
+      if(s.stopped||s.socket!==socket)return;
+      for(const {key,update} of updates){
+        if(Number.isInteger(update?.status))this.store.receipt(s.id,key?.id,update.status);
+        const edited=update?.message?.editedMessage?.message,stamp=Number(update?.messageTimestamp);
+        if(edited&&key?.id&&Number.isSafeInteger(stamp)&&stamp>0&&(!this.store.get(s.id,'system:receive-after')||stamp*1000>=this.store.get(s.id,'system:receive-after'))){
+          this.store.accept(s.id,{key:{...key,id:`edit:${key.id}:${stamp}`},messageTimestamp:stamp,message:{protocolMessage:{type:proto.Message.ProtocolMessage.Type.MESSAGE_EDIT,key:{id:key.id},editedMessage:edited}}});
+        }
+      }
+      this.flush().catch(()=>{});
+    });
+    socket.ev.on('message-receipt.update',updates=>{
+      if(s.stopped||s.socket!==socket)return;
+      for(const {key,receipt} of updates){const status=receipt?.readTimestamp||receipt?.playedTimestamp?4:receipt?.receiptTimestamp?3:null;if(status!==null)this.store.receipt(s.id,key?.id,status);}
+    });
     socket.ev.on('creds.update',update=>{if(!s.stopped&&s.socket===socket){Object.assign(creds,update);this.store.set(s.id,'creds',creds);}});
     socket.ev.on('connection.update',update=>{
       if(s.stopped||s.socket!==socket)return;
@@ -67,14 +84,16 @@ export class Sessions {
       }
     });
     socket.ev.on('messages.upsert',({messages,type})=>{
-      if(type!=='notify'||s.stopped||s.socket!==socket)return;
+      if(s.stopped||s.socket!==socket)return;
       for(const message of messages){
+        // Offline reactions and revocations arrive as append events.
+        if(type!=='notify'&&(type!=='append'||(!unwrap(message.message).reactionMessage&&!deletionTarget(message.message)&&!isMessageEdit(unwrap(message.message)))))continue;
         const cutoff=this.store.get(s.id,'system:receive-after')||0;
         if(cutoff&&Number(message.messageTimestamp)*1000<cutoff)continue;
         if(!message.key?.id||!message.message||(!directJid(message.key.remoteJid)&&!message.key.remoteJid?.endsWith('@lid')))continue;
         const m=unwrap(message.message);
-        if(m.protocolMessage||m.senderKeyDistributionMessage)continue;
-        if(message.key.fromMe&&this.store.wasSent(s.id,message.key.id))continue;
+        if((m.protocolMessage&&!deletionTarget(message.message)&&!isMessageEdit(m))||m.senderKeyDistributionMessage||m.pinInChatMessage)continue;
+        if(message.key.fromMe&&this.store.wasSent(s.id,message.key.id)&&!deletionTarget(message.message))continue;
         this.store.set(s.id,`message:${message.key.id}`,message.message);
         this.store.accept(s.id,message);
       }
@@ -100,22 +119,99 @@ export class Sessions {
       const original=this.store.open(previous.body);
       const mediaIdentity=media=>media?JSON.stringify({kind:media.kind,mime:media.mime,name:media.name,url:new URL(media.url).origin+new URL(media.url).pathname}):'';
       if(original.recipient!==input.recipient||original.body!==input.body||mediaIdentity(original.media)!==mediaIdentity(input.media))throw failure('Identificador já utilizado para outra mensagem.');
+      if((original.replyTo?.external||'')!==(input.replyTo?.external||'')||(original.replyTo?.body||'')!==(input.replyTo?.body||''))throw failure('Identificador já utilizado para outra referência de resposta.');
       if(previous.state==='sent')return {external:previous.external};
       throw failure('Envio anterior sem confirmação. Confira o WhatsApp antes de reenviar.',409,false);
     }
     const s=this.sessions.get(id);if(!s||s.status!=='connected'||!s.socket)throw failure('WhatsApp desconectado. Reconecte pelo QR Code.');
     let bytes,content;try{bytes=input.media?await fetchAttachment(input.media,this.origin,this.fetcher):null;content=outboundContent(input,bytes);}catch{throw failure('Mensagem ou anexo inválido/indisponível.',400);}
-    // Check again after downloading the attachment, before claiming the send.
+    let recipient;try{recipient=await resolveRecipient(s.socket,input.recipient);}catch(error){throw failure(error.message==='Telefone de destino inválido.'||error.message.startsWith('Número não localizado')?error.message:'Não foi possível verificar o destinatário no WhatsApp. Tente novamente.',503);}
+    // Check again after downloading and resolving the contact, before claiming the send.
     if(s.stopped||s.status!=='connected'||!s.socket)throw failure('Canal pausado ou desconectado antes do envio.');
     if(this.store.sent(id,input.idempotencyKey))return this.send(id,input);
     const socket=s.socket,external=generateMessageIDV2(socket.user?.id);
     this.store.recordSend(id,input.idempotencyKey,external,input);
+    this.store.set(id,`delivery:${external}`,{recipient:jidPhone(recipient),requested:input.recipient,status:1,updated:Date.now()});
     try{
-      const sent=await socket.sendMessage(`${input.recipient}@s.whatsapp.net`,content,{messageId:external});
+      const quoted=quotedMessage(input,recipient,this.store,id);
+      const sent=await socket.sendMessage(recipient,content,{messageId:external,...(quoted?{quoted}:{})});
       if(sent?.key?.id!==external)throw Error('Envio sem identificador.');
       if(sent.message)this.store.set(id,`message:${external}`,sent.message);
       this.store.sendState(id,input.idempotencyKey,'sent');return {external};
     }catch{this.store.sendState(id,input.idempotencyKey,'uncertain');throw failure('Envio sem confirmação. Confira o WhatsApp antes de reenviar.',502,false);}
+  }
+  async revoke(id,input){
+    return this.messageAction(id,input,'revoke');
+  }
+  async react(id,input){
+    if(typeof input?.fromMe!=='boolean'||typeof input?.emoji!=='string'||input.emoji.length>32)throw failure('Reação inválida.',400);
+    return this.messageAction(id,input,'react');
+  }
+  async edit(id,input){
+    if(typeof input?.body!=='string'||!input.body.trim()||input.body.length>2000)throw failure('Texto inválido para edição.',400);
+    const cached=this.store.get(id,`message:${input.external}`),content=cached&&unwrap(cached);
+    if(content&&!content.conversation&&!content.extendedTextMessage)throw failure('A edição está disponível apenas para mensagens de texto.',400);
+    return this.messageAction(id,input,'edit');
+  }
+  async forward(id,input){
+    const source=input?.source;
+    if(!/^[-a-zA-Z0-9:]{1,160}$/.test(input?.idempotencyKey||'')||!/^\d{10,15}$/.test(input?.recipient||'')||!source||typeof source.external!=='string'||!source.external||source.external.length>200||!/^\d{10,15}$/.test(source.customer||'')||typeof source.fromMe!=='boolean'||typeof source.body!=='string'||source.body.length>14000||!['text','image','video','audio','document','file','sticker'].includes(source.kind))throw failure('Mensagem inválida para encaminhamento.',400);
+    const previous=this.store.sent(id,input.idempotencyKey);
+    if(previous){
+      const original=this.store.open(previous.body);
+      if(original.operation!=='forward'||original.recipient!==input.recipient||original.source.external!==source.external||original.source.customer!==source.customer||original.source.fromMe!==source.fromMe||original.source.body!==source.body)throw failure('Identificador já utilizado para outro encaminhamento.');
+      if(previous.state==='sent')return {ok:true,external:previous.external,timestamp:previous.created};
+      throw failure('Encaminhamento sem confirmação. Confira o WhatsApp antes de tentar novamente.',409,false);
+    }
+    const s=this.sessions.get(id);if(!s||s.stopped||s.status!=='connected'||!s.socket)throw failure('WhatsApp desconectado. Reconecte pelo QR Code.');
+    const socket=s.socket;let recipient;
+    try{recipient=await resolveRecipient(socket,input.recipient);}catch{throw failure('Não foi possível verificar o destinatário no WhatsApp.',503);}
+    if(jidPhone(recipient)===jidPhone(socket.user?.id))throw failure('O destino é o próprio número do canal.',400);
+    const original=this.store.get(id,`message:${source.external}`),cachedText=original&&(unwrap(original).conversation||unwrap(original).extendedTextMessage?.text);let content;
+    if(original&&(source.kind!=='text'||cachedText===undefined||cachedText===source.body))content={forward:{key:{remoteJid:source.customer+'@s.whatsapp.net',id:source.external,fromMe:source.fromMe},message:original},force:true};
+    else if(source.kind==='text')content={text:source.body,contextInfo:{isForwarded:true,forwardingScore:1}};
+    else{
+      let bytes,mime=source.mime;
+      if(/^[a-f0-9-]{36}$/i.test(source.qrId||'')){const media=this.store.media(id,source.qrId);bytes=media?.bytes;mime=media?.mime;}
+      else if(source.delivery){try{bytes=await fetchAttachment(source.delivery,this.origin,this.fetcher);mime=source.delivery.mime;}catch{throw failure('O anexo original está indisponível para encaminhar.',404);}}
+      if(!bytes)throw failure('O anexo original não está mais disponível para encaminhar.',404);
+      const kind=source.kind==='file'?'document':source.kind;
+      content={[kind]:bytes,mimetype:mime||'application/octet-stream',...(kind==='document'?{fileName:String(source.name||'anexo').slice(0,180)}:{}),...(['image','video','document'].includes(kind)&&source.caption?{caption:String(source.caption).slice(0,12000)}:{}),contextInfo:{isForwarded:true,forwardingScore:1}};
+    }
+    if(s.stopped||s.socket!==socket||s.status!=='connected')throw failure('Canal desconectado antes do encaminhamento.');
+    if(this.store.sent(id,input.idempotencyKey))return this.forward(id,input);
+    const external=generateMessageIDV2(socket.user?.id);this.store.recordSend(id,input.idempotencyKey,external,{...input,operation:'forward'});
+    this.store.set(id,`delivery:${external}`,{recipient:jidPhone(recipient),requested:input.recipient,status:1,updated:Date.now()});
+    try{
+      const sent=await socket.sendMessage(recipient,content,{messageId:external});if(sent?.key?.id!==external)throw Error('Encaminhamento sem identificador.');
+      if(sent.message)this.store.set(id,`message:${external}`,sent.message);
+      this.store.sendState(id,input.idempotencyKey,'sent');return {ok:true,external,timestamp:this.store.sent(id,input.idempotencyKey).created};
+    }catch{this.store.sendState(id,input.idempotencyKey,'uncertain');throw failure('Encaminhamento sem confirmação. Confira o WhatsApp antes de tentar novamente.',502,false);}
+  }
+  async messageAction(id,input,operation){
+    if(!/^[-a-zA-Z0-9:]{1,160}$/.test(input?.idempotencyKey||'')||!/^\d{10,15}$/.test(input?.recipient||'')||typeof input?.external!=='string'||!input.external||input.external.length>200)throw failure('Mensagem inválida para esta ação.',400);
+    const previous=this.store.sent(id,input.idempotencyKey);
+    if(previous){
+      const original=this.store.open(previous.body);
+      if(original.operation!==operation||original.external!==input.external||original.recipient!==input.recipient||(operation==='react'&&(original.emoji!==input.emoji||original.fromMe!==input.fromMe))||(operation==='edit'&&original.body!==input.body))throw failure('Identificador já utilizado.');
+      if(previous.state==='sent')return {ok:true,external:previous.external,timestamp:previous.created};
+      throw failure('Ação sem confirmação. Confira o WhatsApp antes de tentar novamente.',409,false);
+    }
+    const s=this.sessions.get(id);if(!s||s.stopped||s.status!=='connected'||!s.socket)throw failure('WhatsApp desconectado. Reconecte pelo QR Code.');
+    const socket=s.socket;
+    let recipient;try{recipient=await resolveRecipient(socket,input.recipient);}catch{throw failure('Não foi possível verificar o destinatário no WhatsApp.',503);}
+    if(s.stopped||s.socket!==socket||s.status!=='connected')throw failure('Canal desconectado antes da ação.');
+    if(this.store.sent(id,input.idempotencyKey))return this.messageAction(id,input,operation);
+    const external=generateMessageIDV2(socket.user?.id);
+    this.store.recordSend(id,input.idempotencyKey,external,{...input,operation});
+    try{
+      const key={remoteJid:recipient,id:input.external,fromMe:['revoke','edit'].includes(operation)?true:input.fromMe};
+      const content=operation==='revoke'?{delete:key}:operation==='edit'?{text:input.body,edit:key}:{react:{key,text:input.emoji}};
+      const sent=await socket.sendMessage(recipient,content,{messageId:external});
+      if(sent?.key?.id!==external)throw Error('Ação sem identificador.');
+      if(operation==='edit'){const old=this.store.get(id,`message:${input.external}`);this.store.set(id,`message:${input.external}`,{extendedTextMessage:{text:input.body,...(old?.extendedTextMessage?.contextInfo?{contextInfo:old.extendedTextMessage.contextInfo}:{})}});}
+      this.store.sendState(id,input.idempotencyKey,'sent');return {ok:true,external,timestamp:this.store.sent(id,input.idempotencyKey).created};
+    }catch{this.store.sendState(id,input.idempotencyKey,'uncertain');throw failure('Ação sem confirmação. Confira o WhatsApp antes de tentar novamente.',502,false);}
   }
   async flush() {
     if(this.flushing||this.closed)return;this.flushing=true;

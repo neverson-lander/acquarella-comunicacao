@@ -1,1 +1,61 @@
 .contact-actions{display:flex;gap:8px;flex-wrap:wrap}.contact-filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:12px;margin:20px 0;align-items:end}.contact-filters label,.contact-import label{display:grid;gap:6px;font-size:13px}.contact-filters input,.contact-filters select,.contact-import input,.contact-import select{width:100%;padding:10px;border:1px solid #ccdce0;border-radius:8px;background:white;color:#164655}.contact-table-scroll{overflow-x:auto;background:white;border:1px solid #dce8eb;border-radius:12px;margin:18px 0}.contact-table{width:100%;border-collapse:collapse;font-size:13px;text-align:left;min-width:700px}.contact-table th,.contact-table td{padding:14px;border-bottom:1px solid #e6eef0;vertical-align:top}.contact-table th{background:#f2f7f8;color:#466674}.contact-table small{display:block;margin-top:5px;color:#58727c}.contact-tag{display:inline-block;background:#e8f4f4;color:#176063;border-radius:12px;padding:4px 8px;margin:2px}.contact-pagination{display:flex;gap:15px;align-items:center;justify-content:flex-end}.contact-tags{display:flex;flex-wrap:wrap;gap:10px;border:1px solid #dce8eb;border-radius:8px;padding:14px;margin:15px 0}.contact-tags label{display:flex;gap:7px;align-items:center;margin:0}.contact-tags input{width:auto}.contact-import{max-width:1050px;margin-top:20px;padding:24px;background:white;border:1px solid #dce8eb;border-radius:14px}.contact-import form>label{margin:18px 0}.contact-import-rule{padding:15px;background:#fff6df;border-radius:8px;line-height:1.6}.contact-history{max-height:60vh;overflow:auto}.contact-history article{padding:12px 0;border-bottom:1px solid #dce8eb;overflow-wrap:anywhere}.contact-history small{display:block;color:#58727c;margin:5px 0}.contact-history p{font-size:12px}.contact-import [role=alert]{color:#a33024}.account-disabled{border-color:#d5dadd;opacity:.85}.channel-disabled-label{display:block;color:#9c482b;margin:10px 0;font-weight:600}@media(max-width:700px){.contact-import{padding:16px}.contact-filters{grid-template-columns:1fr 1fr}.contact-pagination{justify-content:center}.section-toolbar .contact-actions{margin-top:12px}}
+
+.outreach-results{display:grid;gap:12px;margin-top:18px;max-height:45vh;overflow:auto}.outreach-client{display:grid;gap:8px;padding:16px;border:1px solid #dce8eb;border-radius:12px}.outreach-client .contact-channel{align-items:center;gap:8px}.outreach-client .contact-channel svg,.outreach-destination .contact-channel svg{width:20px;height:20px;flex-shrink:0}.outreach-client p{font-size:13px;color:#725b2d}.outreach-client button{justify-self:start}.outreach-destination{padding:16px;background:#f2f7f8;border-radius:12px;overflow-wrap:anywhere}.outreach-destination .contact-channel{display:flex;align-items:center;gap:8px}
+
+/* Contact history: readable audit trail with one scroll area. */
+#modal.contact-history-dialog{width:min(740px,calc(100vw - 32px));max-width:740px;max-height:calc(100dvh - 40px);padding:0;border:1px solid #dce7eb;border-radius:18px;overflow:hidden}
+#modal.contact-history-dialog[open]{display:flex;flex-direction:column}
+#modal.contact-history-dialog>.modal-heading{flex-shrink:0;padding:22px 24px 18px;margin:0;border-bottom:1px solid #e5edf0}
+#modal.contact-history-dialog>.modal-heading h2{font-size:20px;letter-spacing:-.3px}
+#modal.contact-history-dialog #modal-form{display:flex;flex-direction:column;min-height:0;overflow:hidden;margin:0}
+#modal.contact-history-dialog .contact-history-shell{display:flex;flex-direction:column;min-height:0;overflow:hidden}
+#modal.contact-history-dialog .contact-history-identity{display:flex;align-items:center;gap:12px;flex-shrink:0;padding:20px 24px 18px;background:#f8fbfc}
+#modal.contact-history-dialog .contact-history-avatar{display:grid;place-items:center;flex:0 0 42px;width:42px;height:42px;border-radius:12px;background:#e4f1f5;color:#39758a;font-size:13px;font-weight:700}
+#modal.contact-history-dialog .contact-history-identity>div{min-width:0;flex:1}
+#modal.contact-history-dialog .contact-history-identity strong{display:block;color:#215768;font-size:15px;line-height:1.4;overflow-wrap:anywhere}
+#modal.contact-history-dialog .contact-history-identity small{display:block;margin-top:5px;font-size:11px;color:#7d959e}
+#modal.contact-history-dialog .contact-history-status{align-self:center;flex-shrink:0;padding:5px 9px;border-radius:7px;background:#eaf5ee;color:#37775a;font-size:10px;font-weight:700}
+#modal.contact-history-dialog .contact-history-status.is-inactive{background:#f0f2f4;color:#7f8c95}
+#modal.contact-history-dialog .contact-history-tabs{display:flex;gap:20px;flex-shrink:0;padding:0 24px;border-bottom:1px solid #dfe9ee;background:#f8fbfc}
+#modal.contact-history-dialog .contact-history-tabs button{display:flex;gap:8px;align-items:center;padding:13px 0;border:0;border-bottom:2px solid transparent;border-radius:0;background:transparent;color:#7c929d;font-size:12px;font-weight:600;cursor:pointer}
+#modal.contact-history-dialog .contact-history-tabs button[aria-selected=true]{color:#235f73;border-bottom-color:#235f73}
+#modal.contact-history-dialog .contact-history-tabs span{min-width:22px;padding:2px 6px;border-radius:5px;background:#e9f0f3;color:#6f8b98;font-size:10px;text-align:center}
+#modal.contact-history-dialog .contact-history-tabs button:focus-visible{outline:2px solid #32849d;outline-offset:3px}
+#modal.contact-history-dialog .contact-history-panel{min-height:0;overflow:auto;padding:18px 24px 24px;overscroll-behavior:contain}
+#modal.contact-history-dialog [hidden]{display:none!important}
+#modal.contact-history-dialog .contact-history-caption{font-size:10px;color:#90a3ac;margin:0 0 18px}
+#modal.contact-history-dialog .contact-timeline-event{position:relative;display:flex;gap:13px;margin-bottom:18px}
+#modal.contact-history-dialog .contact-timeline-event:not(:last-child)::before{content:'';position:absolute;left:12px;top:28px;bottom:-18px;width:1px;background:#e1e9ee}
+#modal.contact-history-dialog .contact-timeline-marker{display:grid;place-items:center;flex:0 0 25px;height:25px;border-radius:8px;background:#edf3f6;color:#6991a3;font-size:18px;z-index:1}
+#modal.contact-history-dialog .contact-timeline-marker.is-created{background:#e7f5ed;color:#57936d}
+#modal.contact-history-dialog .contact-timeline-card{flex:1;min-width:0;padding:15px;border:1px solid #dfe9ee;border-radius:12px;background:#fff}
+#modal.contact-history-dialog .contact-timeline-card>header{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
+#modal.contact-history-dialog .contact-timeline-card>header>strong{font-size:13px;color:#2c5d6e}
+#modal.contact-history-dialog .contact-timeline-card time{font-size:10px;color:#92a4ad;white-space:nowrap}
+#modal.contact-history-dialog .contact-event-actor{font-size:10px;color:#849ba6;margin:5px 0 14px}
+#modal.contact-history-dialog .contact-change-list{margin:0}
+#modal.contact-history-dialog .contact-change-row{display:grid;grid-template-columns:125px minmax(0,1fr);gap:12px;padding:9px 0;border-top:1px solid #eef3f5;font-size:12px;line-height:1.6}
+#modal.contact-history-dialog .contact-change-row dt{margin:0;color:#78909c;font-size:11px}
+#modal.contact-history-dialog .contact-change-row dd{display:flex;align-items:flex-start;gap:10px;min-width:0;margin:0;overflow-wrap:anywhere}
+#modal.contact-history-dialog .contact-change-current{color:#315c6b;white-space:pre-wrap}
+#modal.contact-history-dialog .contact-change-before,#modal.contact-history-dialog .contact-change-after{flex:1;min-width:0;white-space:pre-wrap}
+#modal.contact-history-dialog .contact-change-before{color:#99a9b1}
+#modal.contact-history-dialog .contact-change-after{color:#315f70}
+#modal.contact-history-dialog .contact-change-row dd small{display:block;font-size:9px;color:#9babb3;margin-bottom:3px}
+#modal.contact-history-dialog .contact-change-arrow{align-self:center;color:#a4b5bc}
+#modal.contact-history-dialog .contact-history-tag{display:inline-block;padding:3px 9px;background:#edf5f7;color:#427c8f;border-radius:6px;font-size:11px}
+#modal.contact-history-dialog .contact-event-note{font-size:12px;color:#8b9ea8;margin-bottom:0}
+#modal.contact-history-dialog .contact-history-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:190px;padding:28px 20px;text-align:center;color:#78929e}
+#modal.contact-history-dialog .contact-history-empty>span{font-size:30px;color:#a6bec8;margin-bottom:15px}
+#modal.contact-history-dialog .contact-history-empty strong{font-size:14px;color:#557788}
+#modal.contact-history-dialog .contact-history-empty p{max-width:340px;margin:9px 0 0;font-size:12px;line-height:1.8}
+#modal.contact-history-dialog .contact-booking-group+section{margin-top:24px}
+#modal.contact-history-dialog .contact-booking-group h3{display:flex;gap:8px;align-items:center;font-size:13px;color:#3c687b;margin:0 0 12px}
+#modal.contact-history-dialog .contact-booking-group h3 span{font-size:10px;font-weight:500;color:#95a7af}
+#modal.contact-history-dialog .contact-booking-group .crm-history{padding:14px;margin-bottom:12px;border:1px solid #dfe9ed;border-radius:10px;display:flex;flex-direction:column;gap:6px;font-size:12px;line-height:1.6}
+#modal.contact-history-dialog .contact-booking-group .crm-history strong{font-size:12px;color:#3c6b7e}
+#modal.contact-history-dialog .contact-booking-group .crm-history small{font-size:10px;color:#8b9fa9}
+#modal.contact-history-dialog .modal-footer{flex-shrink:0;margin:0;padding:16px 24px;border-top:1px solid #e0e9ed;background:#fff}
+#modal.contact-history-dialog .modal-footer button{min-width:90px;min-height:38px}
+#modal.contact-history-dialog .form-error:empty{display:none}
+@media(max-width:600px){#modal.contact-history-dialog{width:calc(100vw - 20px);max-height:calc(100dvh - 24px);border-radius:14px}#modal.contact-history-dialog>.modal-heading{padding:18px}#modal.contact-history-dialog .contact-history-identity{padding:16px 18px}#modal.contact-history-dialog .contact-history-tabs{padding:0 18px;gap:18px}#modal.contact-history-dialog .contact-history-panel{padding:16px 14px 20px}#modal.contact-history-dialog .contact-timeline-event{gap:8px}#modal.contact-history-dialog .contact-timeline-card{padding:12px}#modal.contact-history-dialog .contact-change-row{grid-template-columns:1fr;gap:3px}#modal.contact-history-dialog .contact-change-row dd{gap:8px}#modal.contact-history-dialog .modal-footer{padding:14px 18px}#modal.contact-history-dialog .contact-history-identity strong{font-size:13px}}

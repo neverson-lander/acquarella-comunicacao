@@ -19,6 +19,8 @@ export function inboundWhatsApp(value) {
       body: m.text?.body || m.button?.text || m.interactive?.button_reply?.title || m.interactive?.list_reply?.title ||
         (m[m.type]?.caption ? `[${captions[m.type] || 'Anexo'}] ${m[m.type].caption}` : `[${captions[m.type] || 'Mensagem não textual'} recebida no WhatsApp]`),
       kind:m.type||'text',
+      edit:m.type==='edit'&&typeof m.edit?.message_id==='string'?{target:m.edit.message_id.slice(0,200)}:null,
+      deletion:m.type==='deletion'&&typeof m.deletion?.message_id==='string'?{target:m.deletion.message_id.slice(0,500)}:null,
       media:m.qrMedia||(['image','audio','sticker','video','document'].includes(m.type)&&/^\d+$/.test(m[m.type]?.id||'')?{id:String(m[m.type].id),mime_type:String(m[m.type].mime_type||'').slice(0,100),caption:String(m[m.type].caption||'').slice(0,2000),name:String(m[m.type].filename||'').slice(0,180),voice:!!m[m.type].voice}:null),
       reaction:m.type==='reaction'&&typeof m.reaction?.message_id==='string'?{target:m.reaction.message_id.slice(0,500),emoji:typeof m.reaction.emoji==='string'?m.reaction.emoji.slice(0,32):''}:null,
       timestamp: (Number(m.timestamp) || Math.floor(Date.now() / 1000)) * 1000,

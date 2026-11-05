@@ -32,10 +32,22 @@ Para atualizar, preservar os arquivos privados e os volumes, copiar o código re
 sudo docker compose build
 sudo docker compose up -d --wait postgres
 sudo docker compose run --rm --no-deps app node scripts/migrate-standalone.mjs
-sudo docker compose up -d app whatsapp-qr caddy
+sudo docker compose up -d app whatsapp-qr cashbarber caddy
 ```
 
 O migrador independente aplica somente SQL pendente, em transação e com trava. Ele não importa dados SQLite antigos e não altera inscrições ou webhooks na Meta. Não executar o `scripts/migrate.mjs` da Vercel nesta instalação.
+
+## CashBarber
+
+O serviço `cashbarber` utiliza APIs para as consultas e gravações e mantém o navegador somente para conectar a conta. Token e cookies ficam criptografados por empresa em `cashbarber-data`, sem publicar portas. `cashbarber.env` contém `CASHBARBER_SECRET` (mesmo segredo em `app.env`) e `CASHBARBER_STORAGE_KEY` (32 bytes em base64). Preserve esses valores e o volume ao atualizar. A URL interna da aplicação é definida no Compose.
+
+Após instalar o conector, entre em **Configurações → CashBarber → Conectar / renovar sessão**. O login realizado no navegador de inspeção do computador não conecta o serviço da VPS. Consulte o [manual do conector](../../cashbarber-bridge/README.md) para funcionamento, recuperação de tentativas e limites.
+
+## Avaliação por IA
+
+A aplicação consulta a fila de avaliações a cada 15 segundos, independentemente de visitantes e do agendador de alertas. A migração `202610230001_attendance_evaluations` cria a fila e a conexão criptografada por empresa; todos os canais começam com a avaliação desligada. Não é necessário definir chave de API da OpenAI para usar a conexão com a conta ChatGPT.
+
+Após atualizar, conecte a conta em **Configurações → Avaliação de atendimento por IA**, execute o conector local indicado na tela, autorize na OpenAI e selecione um modelo. Ative os canais desejados em **Canais de comunicação**. Tokens são renovados pela VPS e entram no backup criptografados pela mesma `APP_ENCRYPTION_KEY` da aplicação. Preserve essa chave. Consulte o [procedimento e limites](../../vercel-app/README.md#avaliação-de-atendimento-por-ia).
 
 ## Backup
 

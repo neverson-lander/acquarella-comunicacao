@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { STAGES, referralTouch, cents,selectedTouch } from './crm-domain.mjs';
-import {seesAttendance,worksAttendance} from './attendance-policy.mjs';
+import {seesAttendance,worksAttendance,canReplyAttendance} from './attendance-policy.mjs';
 import {registeredSource,sourceSnapshot} from './registered-source.mjs';
 import {createMetaAttribution} from './meta-attribution.mjs';
-import {contactPhoneKey} from '../public/contact-domain.mjs';
+import {ensureConversationCrm} from './crm-conversation.mjs';
+import {captureAttendanceSource} from './attendance-source.mjs';
+import {createCampaignInvestment} from './campaign-investment.mjs';
 
 const error=(message,status=400)=>{throw Object.assign(Error(message),{status});};
 const str=(v,label,max=200,optional=false)=>{if(typeof v!=='string'||v.length>max||(!optional&&!v.trim()))error(`${label} inválido.`);return v.trim();};
@@ -12,6 +14,7 @@ const amount=v=>{try{return cents(v);}catch(e){error(e.message);}};
 
 export function createCrm({pool,permitted,open,seal,now=Date.now,fetcher=fetch}) {
   const attribution=createMetaAttribution({pool,open,now,fetcher});
+  const investment=createCampaignInvestment({pool,open,now,fetcher});
   async function transaction(fn){const db=await pool.connect();try{await db.query('begin');const result=await fn(db);await db.query('commit');return result;}catch(e){await db.query('rollback');throw e;}finally{db.release();}}
   const query=(db,sql,args=[])=>db.query(sql,args);
   const one=async(db,sql,args=[])=>(await query(db,sql,args)).rows[0];
@@ -35,21 +38,16 @@ export function createCrm({pool,permitted,open,seal,now=Date.now,fetcher=fetch})
   async function capture(conversation,account,message){
     const ads=new Set();
     await transaction(async db=>{
-      await query(db,'select pg_advisory_xact_lock(hashtextextended($1,0))',[account.id+':'+message.customer]);
-      let o=await one(db,'select * from crm_opportunities where conversation=$1',[conversation.id]);
-      if(!o){
-        const phone=account.channel==='whatsapp'?message.customer:'',phoneKey=contactPhoneKey(phone);
-        if(phoneKey)await query(db,'select pg_advisory_xact_lock(hashtextextended($1,0))',[`${account.tenant}:contact:${account.id}:${phoneKey}`]);
-        const contact=(phoneKey&&await one(db,'select id from crm_contacts where tenant=$1 and account=$2 and phone_key=$3',[account.tenant,account.id,phoneKey]))||await one(db,'insert into crm_contacts(tenant,name,account,phone,created) values($1,$2,$3,$4,$5) returning id',[account.tenant,conversation.name,account.id,phone,message.timestamp]);
-        o=await one(db,'insert into crm_opportunities(tenant,conversation,contact,first_contact,updated) values($1,$2,$3,$4,$4) returning *',[account.tenant,conversation.id,contact.id,message.timestamp]);
-      }
+      const o=await ensureConversationCrm(db,conversation,account,message.timestamp);
+      if(account.channel==='instagram')await query(db,"update crm_touches t set ignored_for_attribution=true where t.opportunity=$1 and t.source='unknown' and t.evidence='webhook' and t.ad_id='' and exists(select 1 from messages m where m.conversation=$2 and not m.attendance_relevant and (m.external=t.event_key or m.external=$3||':'||t.event_key))",[o.id,conversation.id,account.id]);
       await query(db,'update crm_opportunities set first_contact=least(first_contact,$1),updated=greatest(updated,$1) where id=$2',[message.timestamp,o.id]);
       await query(db,'update crm_contacts set name=$1 where id=$2 and not name_manual',[conversation.name,o.contact]);
       const pending=(await query(db,'select * from crm_pending_referrals where account=$1 and customer=$2 order by created',[account.id,message.customer])).rows;
       const refs=[...pending.map(p=>({referral:p.referral,external:p.event_key,timestamp:p.created})),message];
+      await captureAttendanceSource(db,conversation,account,o,message,refs);
       for(const ref of refs){const touch=referralTouch(ref.referral);
       if(touch){
-        await query(db,'insert into crm_touches(tenant,opportunity,event_key,source,evidence,ad_id,referral,created) values($1,$2,$3,$4,$5,$6,$7,$8) on conflict(opportunity,event_key) do nothing',[account.tenant,o.id,ref.external,touch.source,touch.evidence,touch.ad_id,JSON.stringify(touch.referral),ref.timestamp]);
+        await query(db,"insert into crm_touches(tenant,opportunity,event_key,source,evidence,ad_id,referral,created,ignored_for_attribution) values($1,$2,$3,$4,$5,$6,$7,$8,$9) on conflict(opportunity,event_key) do update set ignored_for_attribution=excluded.ignored_for_attribution,source=excluded.source,evidence=excluded.evidence,ad_id=excluded.ad_id,referral=excluded.referral where crm_touches.source='unknown' and crm_touches.evidence='webhook' and crm_touches.ad_id='' and excluded.source<>'unknown'",[account.tenant,o.id,ref.external,touch.source,touch.evidence,touch.ad_id,JSON.stringify(touch.referral),ref.timestamp,touch.source==='unknown'&&account.channel==='instagram'&&(ref.service_type==='social'||ref.service_type==='media'&&conversation.attendance_eligible===false)]);
         if(touch.ad_id){
           ads.add(touch.ad_id);
           await query(db,'insert into crm_ads(tenant,ad_id,updated) values($1,$2,$3) on conflict do nothing',[account.tenant,touch.ad_id,now()]);
@@ -60,7 +58,7 @@ export function createCrm({pool,permitted,open,seal,now=Date.now,fetcher=fetch})
           }
           if(ad?.service||ad?.offer)await query(db,"update crm_opportunities set service=coalesce(service,$1),offer=case when offer='' then $2 else offer end where id=$3",[ad.service,ad.offer,o.id]);
         }
-      }else if(!await one(db,'select id from crm_touches where opportunity=$1 limit 1',[o.id])){
+      }else if(!await one(db,'select id from crm_touches where opportunity=$1 and not ignored_for_attribution limit 1',[o.id])){
         await query(db,"insert into crm_touches(tenant,opportunity,event_key,source,evidence,created) values($1,$2,$3,'unknown','webhook',$4) on conflict do nothing",[account.tenant,o.id,message.external,message.timestamp]);
       }
       }
@@ -81,7 +79,7 @@ export function createCrm({pool,permitted,open,seal,now=Date.now,fetcher=fetch})
   async function state(user){
     const accounts=(await pool.query('select * from accounts where tenant=$1',[user.tenant])).rows.filter(a=>permitted(user,a));
     const allowed=accounts.map(a=>a.id);
-    const opportunities=(await pool.query('select o.*,c.account,c.customer,c.name as customer_name,c.username,c.assigned_to,c.status,a.channel,a.mode,u.name as owner_name from crm_opportunities o join conversations c on c.id=o.conversation join accounts a on a.id=c.account left join users u on u.id=o.owner where o.tenant=$1 and c.account=any($2::uuid[]) order by o.updated desc',[user.tenant,allowed])).rows.filter(o=>seesAttendance(user,o));
+    const opportunities=(await pool.query('select o.*,c.account,c.customer,c.name as customer_name,c.username,c.assigned_to,c.status,c.attendance_eligible,a.channel,a.mode,u.name as owner_name from crm_opportunities o join conversations c on c.id=o.conversation join accounts a on a.id=c.account left join users u on u.id=o.owner where o.tenant=$1 and c.account=any($2::uuid[]) order by o.updated desc',[user.tenant,allowed])).rows.filter(o=>seesAttendance(user,o));
     const ids=opportunities.map(o=>o.id),contacts=[...new Set(opportunities.map(o=>o.contact))];
     const data={opportunities,stages:STAGES};
     for(const [key,sql,args] of [
@@ -92,6 +90,12 @@ export function createCrm({pool,permitted,open,seal,now=Date.now,fetcher=fetch})
       ['tags','select t.* from crm_opportunity_tags t join crm_opportunities o on o.id=t.opportunity where o.tenant=$1 and o.id=any($2::uuid[])',[user.tenant,ids]],
       ['history','select * from crm_history where tenant=$1 and opportunity=any($2::uuid[]) order by created desc limit 500',[user.tenant,ids]],
       ['attendance_history','select h.* from attendance_history h join crm_opportunities o on o.conversation=h.conversation where h.tenant=$1 and o.id=any($2::uuid[]) order by h.created,h.id',[user.tenant,ids]],
+      ['bookings',"select b.id,b.conversation,b.actor,b.quote,b.receipt,b.confirmed_at,b.closure_id from cashbarber_bookings b join crm_opportunities o on o.conversation=b.conversation and o.tenant=b.tenant where b.tenant=$1 and b.state='confirmed' and o.id=any($2::uuid[]) order by b.confirmed_at,b.id",[user.tenant,ids]],
+      ['campaign_checks',`select distinct on (b.conversation,b.ad_id,coalesce(b.report->>'since','0')) b.conversation,b.ad_id,b.report,b.actor,b.checked_at
+        from (select tenant,conversation,ad_id,report,actor,checked_at from cashbarber_campaign_checks union all select tenant,conversation,ad_id,report,actor,checked_at from cashbarber_campaign_check_history) b
+        join crm_opportunities o on o.conversation=b.conversation and o.tenant=b.tenant where b.tenant=$1 and o.id=any($2::uuid[])
+        order by b.conversation,b.ad_id,coalesce(b.report->>'since','0'),case when b.report->>'status'='matched' then 0 else 1 end,b.checked_at desc`,[user.tenant,ids]],
+      ['client_links','select l.conversation,l.client_id from cashbarber_links l join crm_opportunities o on o.conversation=l.conversation and o.tenant=l.tenant where l.tenant=$1 and o.id=any($2::uuid[])',[user.tenant,ids]],
       ['team',"select id,name,role,accounts from users where tenant=$1 and role<>'viewer' order by name",[user.tenant]],
       ['ads','select * from crm_ads where tenant=$1 and ad_id in (select ad_id from crm_touches where opportunity=any($2::uuid[]))',[user.tenant,ids]]
     ])data[key]=(await pool.query(sql,args)).rows;
@@ -101,6 +105,7 @@ export function createCrm({pool,permitted,open,seal,now=Date.now,fetcher=fetch})
   }
 
   async function route(user,path,input){
+    if(path==='/api/crm/campaign-investment')return investment.report(user,input);
     if(user.role==='viewer')error('Seu perfil permite apenas visualizar.',403);
     if(path==='/api/crm/catalog'){
       if(user.role!=='admin')error('Apenas administradores gerenciam cadastros.',403);
@@ -202,6 +207,27 @@ export function createCrm({pool,permitted,open,seal,now=Date.now,fetcher=fetch})
       await history(db,user,o,`Oportunidade atualizada: ${o.stage} → ${input.stage}.`);return {ok:true};
     });
   }
+  async function setAttendanceTags(user,cid,input){
+    if(!uuid(cid))error('Atendimento inválido.');
+    if(!input||typeof input!=='object'||Array.isArray(input))error('Dados das tags inválidos.');
+    for(const key of ['tags','expectedTags'])if(!Array.isArray(input[key])||input[key].length>30||input[key].some(id=>!uuid(id)))error('Selecione até 30 tags cadastradas.');
+    return transaction(async db=>{
+      const c=await one(db,'select * from conversations where id=$1 and tenant=$2 for update',[cid,user.tenant]);if(!c)error('Atendimento não encontrado.',404);
+      const account=await one(db,'select * from accounts where id=$1 and tenant=$2',[c.account,user.tenant]);
+      if(!account||!permitted(user,account)||!canReplyAttendance(user,c))error('Assuma um atendimento aberto e autorizado antes de alterar as tags.',403);
+      if(account.deleted_at)error('Este canal foi excluído.',410);
+      const o=await ensureConversationCrm(db,c,account,now()),previous=(await query(db,'select tag from crm_opportunity_tags where opportunity=$1 order by tag',[o.id])).rows.map(r=>r.tag),expected=[...new Set(input.expectedTags.map(id=>id.toLowerCase()))].sort(),tags=[...new Set(input.tags.map(id=>id.toLowerCase()))].sort();
+      if(JSON.stringify(previous)!==JSON.stringify(expected))error('As tags foram alteradas por outra pessoa. Atualize a central e abra a seleção novamente.',409);
+      for(const tag of tags)await catalogId(db,user.tenant,tag,'tag',previous.includes(tag));
+      if(JSON.stringify(tags)===JSON.stringify(previous))return {ok:true,tags};
+      await query(db,'delete from crm_opportunity_tags where opportunity=$1',[o.id]);for(const tag of tags)await query(db,'insert into crm_opportunity_tags(opportunity,tag) values($1,$2)',[o.id,tag]);
+      const added=tags.filter(id=>!previous.includes(id)),removed=previous.filter(id=>!tags.includes(id));
+      const names=(await query(db,"select id,name from crm_catalog where tenant=$1 and kind='tag' and id=any($2::uuid[])",[user.tenant,[...added,...removed]])).rows;
+      await query(db,'update crm_opportunities set updated=$1 where id=$2',[now(),o.id]);
+      await history(db,user,o,'Tags do atendimento atualizadas.'+(added.length?' Adicionadas: '+added.map(id=>names.find(t=>t.id===id)?.name||'Tag indisponível').join(', ')+'.':'')+(removed.length?' Removidas: '+removed.map(id=>names.find(t=>t.id===id)?.name||'Tag indisponível').join(', ')+'.':''));
+      return {ok:true,tags};
+    });
+  }
   async function assignOnReply(conversation,user){await pool.query('update crm_opportunities set owner=c.assigned_to from conversations c where c.id=crm_opportunities.conversation and c.id=$1 and c.tenant=$2',[conversation.id,user.tenant]);}
-  return {state,route,capture,captureReferral,assignOnReply};
+  return {state,route,capture,captureReferral,assignOnReply,setAttendanceTags};
 }

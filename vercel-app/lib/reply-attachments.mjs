@@ -69,7 +69,7 @@ export function createReplyAttachments({pool,seal,open,key,now=Date.now,origin})
   }catch(error){await client.query('rollback');throw error;}finally{client.release();}
  }
  async function remove(user,c,id){await owned(user,c,id);await query('delete from reply_attachments where id=$1 and message is null',[id]);return {ok:true};}
- async function enqueue(user,c,a,input){
+ async function enqueue(user,c,a,input,signer=user,replyTo=null){
   if(!/^[0-9a-f-]{36}$/i.test(String(input.attachmentId)))fail('Anexo inválido.');
   const client=await pool.connect();try{
    await client.query('begin');await client.query('select id from reply_attachments where id=$1 for update',[input.attachmentId]);
@@ -78,14 +78,14 @@ export function createReplyAttachments({pool,seal,open,key,now=Date.now,origin})
    if(!item.ready)fail('Aguarde o upload terminar antes de enviar.');
    attachmentInfo(a.channel,{name:item.name,mime:item.mime,size:item.size});
    const body=String(input.body||'').trim();if(body.length>2000)fail('Mensagem muito longa.');
-   const signed=body?signedReply(user.name,body):'';
+   const signed=body?signedReply(signer.name,body):'';
    const mid=randomUUID(),state=a.mode==='demo'?'simulated':'queued';
-   const media={attachmentId:item.id,name:item.name,mime_type:item.mime,size:item.size};
-   await client.query("insert into messages(id,conversation,direction,body,kind,media,created,state,operator_id,operator_name) values($1,$2,'out',$3,$4,$5,$6,$7,$8,$9)",[mid,c.id,item.name,item.kind,JSON.stringify(media),now(),state,user.id,user.name]);
+   const media={attachmentId:item.id,name:item.name,mime_type:item.mime,size:item.size,...(replyTo?{replyTo}:{})};
+   await client.query("insert into messages(id,conversation,direction,body,kind,media,created,state,operator_id,operator_name,signature_user,signature_name) values($1,$2,'out',$3,$4,$5,$6,$7,$8,$9,$10,$11)",[mid,c.id,item.name,item.kind,JSON.stringify(media),now(),state,user.id,user.name,signer.id,signer.name]);
    await client.query('update reply_attachments set message=$1 where id=$2',[mid,item.id]);
    if(a.mode==='live')await client.query("insert into jobs(id,tenant,account,conversation,message,kind,recipient,body,state,error,created) values($1,$2,$3,$4,$5,'reply',$6,'','pending','',$7)",[randomUUID(),user.tenant,a.id,c.id,mid,c.customer,now()]);
    if(body){
-    const tid=randomUUID();await client.query("insert into messages(id,conversation,direction,body,created,state,operator_id,operator_name) values($1,$2,'out',$3,$4,$5,$6,$7)",[tid,c.id,body,now()+1,state,user.id,user.name]);
+    const tid=randomUUID();await client.query("insert into messages(id,conversation,direction,body,created,state,operator_id,operator_name,signature_user,signature_name,media) values($1,$2,'out',$3,$4,$5,$6,$7,$8,$9,$10)",[tid,c.id,body,now()+1,state,user.id,user.name,signer.id,signer.name,replyTo?JSON.stringify({replyTo}):'{}']);
     if(a.mode==='live')await client.query("insert into jobs(id,tenant,account,conversation,message,kind,recipient,body,state,error,created) values($1,$2,$3,$4,$5,'reply',$6,$7,'pending','',$8)",[randomUUID(),user.tenant,a.id,c.id,tid,c.customer,signed,now()+1]);
    }
    await client.query('update conversations set updated=$1 where id=$2',[now(),c.id]);await client.query('commit');return mid;

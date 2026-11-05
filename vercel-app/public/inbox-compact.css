@@ -1,0 +1,68 @@
+/* Keep secondary controls available without spending conversation height. */
+.inbox-options { position:relative; color:var(--petrol); }
+.inbox-options > summary { cursor:pointer; padding:8px 10px; border:1px solid var(--line); border-radius:6px; background:#fff; font-size:11px; white-space:nowrap; }
+.inbox-options > summary:focus-visible { outline:3px solid #61bca7; outline-offset:2px; }
+.inbox-options-menu { position:absolute; right:0; top:calc(100% + 6px); z-index:20; display:grid; gap:4px; width:245px; max-height:60dvh; overflow-y:auto; padding:8px; background:#fff; border:1px solid var(--line); border-radius:9px; box-shadow:0 8px 24px #002b3a24; }
+.inbox-options:not([open]) .inbox-options-menu { display:none; }
+.inbox-options-menu button { width:100%; text-align:left; white-space:normal; }
+.chat-context { flex-shrink:0; min-width:0; background:#fff; }
+.conversation-focus .chat-context { display:none; }
+.composer-limits summary:before { content:none; }
+.composer-limits summary { display:grid; place-items:center; width:28px; min-height:32px; font-size:16px; }
+.composer-limits p { left:auto; right:0; bottom:36px; }
+@media(min-width:761px) {
+ .inbox-shell #content { gap:6px; }
+ .inbox-controls { flex-wrap:nowrap; gap:8px; }
+ .inbox-controls .attendance-tabs { flex:1; min-width:0; flex-wrap:nowrap; overflow-x:auto; }
+ .inbox-controls .attendance-tabs button { flex-shrink:0; white-space:nowrap; flex-wrap:nowrap; padding:6px 8px; }
+ .inbox-tools { flex-shrink:0; }
+ .queue-priority { font-size:11px; }
+ .queue-health > span:last-child { display:none; }
+ .inbox-shell .chat-header { padding:7px 12px; }
+ .inbox-shell .chat-header .customer-heading strong { font-size:14px; }
+ .inbox-shell .chat-header .customer-reference { display:inline; margin-left:8px; font-size:10px; }
+ .inbox-shell .customer-heading > small { margin-top:2px; }
+ .chat-context { display:flex; align-items:center; gap:6px; padding:3px 10px; border-bottom:1px solid var(--line); }
+ .inbox-shell .chat-context .attendance-toolbar { flex:1; min-width:0; padding:0; border:0; gap:4px; flex-wrap:nowrap; }
+ .chat-context .attendance-toolbar small { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+ .chat-context .attendance-toolbar button { padding:6px; white-space:nowrap; }
+ .chat-context .attendance-tags-row { padding:0; border:0; gap:4px; flex-wrap:nowrap; }
+ .chat-context .attendance-tags-row > strong,.chat-context .attendance-tag-chips:has(>small) { display:none; }
+ .chat-context .attendance-tag-chips { flex-wrap:nowrap; max-width:120px; overflow:hidden; }
+ .chat-context .attendance-tags-row > button { padding:6px; white-space:nowrap; }
+ .chat-context .conversation-details { border:0; overflow:visible; max-height:none; position:relative; }
+ .chat-context .conversation-details > summary { white-space:nowrap; padding:6px; }
+ .chat-context .conversation-details[open] { position:absolute; right:12px; z-index:6; width:min(480px,60vw); border:1px solid var(--line); border-radius:8px; box-shadow:0 8px 24px #002b3a24; max-height:45dvh; overflow:auto; }
+ .inbox-shell .messages { flex:1 1 0; min-height:100px; padding:12px 18px; }
+ .inbox-shell .composer { flex-shrink:0; margin:0 10px 8px; }
+ .inbox-shell .composer .reply-label { display:none; }
+ .inbox-shell .composer textarea { height:54px; min-height:54px; max-height:120px; padding:8px 12px; }
+ .inbox-shell .composer .reply-signature { padding:3px 12px 0; gap:6px; }
+ .reply-signature label { flex-wrap:nowrap; gap:6px; font-size:10px; }
+ .reply-signature select { max-width:230px; padding:3px 6px; height:27px; font-size:11px; }
+ .reply-signature > small { display:none; }
+ .inbox-shell .composer:not(.readonly) .composer-operator { display:none; }
+ .inbox-shell .composer .composer-bottom { padding:4px 6px; gap:4px; }
+ .composer-tools { flex:1; }
+ .composer-tool { min-height:32px; padding:6px; }
+ .composer .composer-bottom .primary { min-height:32px; min-width:90px; padding:7px 10px; }
+ .composer-meta { padding:0; gap:4px; flex-shrink:0; }
+ .composer-counter:not(.near-limit) { display:none; }
+ .inbox-shell .composer.readonly .composer-operator { padding:6px 12px; }
+ .inbox-shell .list-heading { padding:7px 12px; }
+ .inbox-shell .inbox-owner-filter { display:flex; align-items:center; gap:6px; padding:0 12px 6px; }
+ .inbox-owner-filter select { flex:1; min-width:0; padding:6px; margin:0; }
+ .inbox-shell .search { margin-bottom:6px; }
+ .inbox-shell .filter-tabs { padding-bottom:6px; }
+}
+@media(min-width:761px) and (max-width:1200px) {
+ .composer-tool span { display:none; }
+ .chat-context { flex-wrap:wrap; gap:0 6px; }
+ .chat-context .attendance-toolbar { flex-basis:100%; }
+ .chat-context .attendance-tags-row { margin-left:auto; }
+}
+@media(max-width:760px) {
+ .inbox-tools { overflow:visible; flex-wrap:wrap; }
+ .inbox-options > summary { min-height:40px; display:flex; align-items:center; }
+ .inbox-options-menu { right:auto; left:0; width:min(245px,calc(100vw - 32px)); }
+}

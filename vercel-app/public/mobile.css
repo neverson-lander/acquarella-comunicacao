@@ -1,0 +1,70 @@
+/* Phone navigation is a drawer; conversations own the remaining viewport. */
+.mobile-navigation,.mobile-menu-backdrop { display:none; }
+.mobile-navigation .mobile-header-toggle { display:none; }
+.composer-mobile-toggle,.composer-send-icon { display:none; }
+@media(max-width:760px) {
+  .shell { display:flex; flex-direction:column; min-height:100dvh; }
+  .shell > main,.shell.sidebar-collapsed > main { margin-left:0; width:100%; }
+  .mobile-navigation { display:flex; align-items:center; gap:10px; height:48px; flex-shrink:0; padding:4px 12px; background:#fff; border-bottom:1px solid var(--line); color:var(--petrol); }
+  .mobile-navigation button { min-width:44px; min-height:40px; background:#edf5f7; border-radius:8px; color:var(--petrol); font-size:22px; }
+  .mobile-navigation strong { font-size:14px; }
+  .inbox-shell .mobile-navigation .mobile-header-toggle { display:block; margin-left:auto; padding:6px 8px; font-size:12px; white-space:nowrap; }
+  .inbox-shell.mobile-header-collapsed .inbox-controls,
+  .inbox-shell.mobile-header-collapsed .queue-priority,
+  .inbox-shell.mobile-header-collapsed .stats,
+  .inbox-shell.mobile-header-collapsed .demo-banner,
+  .inbox-shell.mobile-header-collapsed .conversation-list > .list-heading,
+  .inbox-shell.mobile-header-collapsed .conversation-list > .search,
+  .inbox-shell.mobile-header-collapsed .conversation-list > .filter-tabs { display:none; }
+  .shell .sidebar { width:min(290px,85vw); z-index:31; padding:12px 16px; }
+  .shell.sidebar-collapsed .sidebar { display:none; }
+  .shell:not(.sidebar-collapsed) .sidebar { width:min(290px,85vw); z-index:31; }
+  .shell:not(.sidebar-collapsed) .mobile-menu-backdrop { display:block; position:fixed; inset:0; z-index:30; background:#002b3a66; }
+  .shell.inbox-shell { height:var(--app-height,100dvh); min-height:0; overflow:hidden; }
+  .shell.inbox-shell > main { height:auto; flex:1; min-height:0; }
+  .inbox-shell .page,.inbox-shell.conversation-focus .page { padding:0; min-width:0; }
+  .inbox-shell #content { gap:6px; min-width:0; }
+  .inbox-shell .inbox { border-radius:0; border:0; min-width:0; overflow:hidden; }
+  .inbox-controls { padding:8px 10px 0; }
+  .inbox-controls .attendance-tabs { flex-wrap:nowrap; width:100%; overflow-x:auto; }
+  .inbox-controls .attendance-tabs button { flex-shrink:0; min-height:44px; font-size:12px; }
+  .inbox-tools { justify-content:flex-start; flex-wrap:nowrap; overflow-x:auto; padding-bottom:4px; }
+  .inbox-tools button { flex-shrink:0; min-height:40px; }
+  #desktop-notifications,#desktop-notification-test { display:none; }
+  .queue-priority { padding:0 12px 6px; }
+  .inbox-shell .chat-header,.inbox-shell.conversation-focus .chat-header { padding:6px; gap:4px; min-height:52px; flex-shrink:0; }
+  .inbox-shell .chat-header .customer-heading { flex:1; min-width:0; }
+  .inbox-shell .chat-header .customer-heading strong,.inbox-shell.conversation-focus .chat-header .customer-heading strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:14px; }
+  .inbox-shell .chat-header .mobile-back { display:block; min-width:40px; min-height:44px; font-size:26px; }
+  .inbox-shell .chat-header #resolve,.inbox-shell.conversation-focus .chat-header #resolve { min-height:44px; padding:8px; font-size:12px; }
+  .inbox-shell #compact-queue,.inbox-shell .chat-focus-toggle { display:none; }
+  .inbox-shell .compact-actions > summary { min-width:44px; min-height:44px; display:grid; place-items:center; padding:4px; }
+  .inbox-shell .messages { padding:12px; overscroll-behavior:contain; }
+  .inbox-shell .message { max-width:90%; overflow-wrap:anywhere; }
+  .inbox-shell .message p { font-size:15px; line-height:1.5; }
+  .inbox-shell .composer,.inbox-shell.conversation-focus .composer { display:grid; grid-template-columns:40px minmax(0,1fr) 44px; align-items:end; flex-shrink:0; min-width:0; padding:4px; margin:0 6px max(6px,env(safe-area-inset-bottom)); border-radius:14px; }
+  .inbox-shell.conversation-focus .composer.readonly { display:grid; }
+  .inbox-shell .composer .reply-label { display:none; }
+  .inbox-shell .composer textarea,.inbox-shell.conversation-focus .composer textarea { grid-row:3; grid-column:2; width:100%; min-width:0; min-height:44px; height:44px; max-height:104px; padding:10px 6px; font-size:16px; line-height:1.4; resize:none; overflow-y:auto; }
+  .reply-signature { grid-row:1; grid-column:1/-1; padding:0 6px 3px; gap:0; }
+  .reply-signature label { width:100%; flex-wrap:nowrap; font-size:11px; gap:6px; }
+  .reply-signature select { flex:1; min-width:0; min-height:32px; height:32px; font-size:16px; padding:2px 6px; border:0; background:transparent; box-shadow:none; }
+  .reply-signature > small { display:none; }
+  .inbox-shell .composer:not(.readonly) .composer-operator { display:none; }
+  .inbox-shell .composer.readonly .composer-operator { grid-row:5; grid-column:1/-1; font-size:11px; padding:4px 8px; }
+  .inbox-shell .composer .composer-bottom { display:contents; }
+  .inbox-shell .composer .composer-tools { display:none; grid-row:4; grid-column:1/-1; align-items:center; padding:3px 4px 0; border-top:1px solid #edf2f4; }
+  .inbox-shell .composer.mobile-tools-open .composer-tools,.inbox-shell .composer.is-recording .composer-tools { display:flex; }
+  .composer-mobile-toggle { display:grid; place-items:center; grid-row:3; grid-column:1; min-width:40px; min-height:44px; padding:0; border-radius:10px; background:transparent; color:#557985; font-size:26px; }
+  .composer-tool { min-width:40px; min-height:44px; padding:8px; }
+  .composer-tool span { display:none; }
+  .inbox-shell .composer .composer-bottom .primary { grid-row:3; grid-column:3; display:grid; place-items:center; min-width:44px; width:44px; min-height:44px; padding:10px; border-radius:11px; }
+  .composer-send-label { display:none; }
+  .composer-send-icon { display:inline-flex; }
+  .composer-send-icon svg { width:22px; height:22px; }
+  .composer .composer-meta { display:none; grid-row:6; grid-column:1/-1; padding:2px 8px; font-size:10px; }
+  .composer.mobile-tools-open .composer-meta,.composer:has(.composer-counter.near-limit) .composer-meta { display:flex; }
+  .attachment-preview { grid-row:2; grid-column:1/-1; max-height:100px; overflow:auto; }
+  .conversation-details { max-height:20dvh; }
+  .incoming-notifications { right:8px; max-width:calc(100vw - 16px); }
+}

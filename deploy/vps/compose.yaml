@@ -33,10 +33,11 @@ services:
       DEPLOYMENT_MODE: standalone
       DATABASE_URL: postgres://acquarella:${APP_DATABASE_PASSWORD}@postgres:5432/acquarella
       WHATSAPP_QR_URL: http://whatsapp-qr:3100
+      CASHBARBER_URL: http://cashbarber:3200
     depends_on:
       postgres:
         condition: service_healthy
-    networks: [database, whatsapp, web]
+    networks: [database, whatsapp, web, cashbarber]
     restart: unless-stopped
     init: true
     stop_grace_period: 20s
@@ -66,6 +67,25 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+  cashbarber:
+    build:
+      context: ../..
+      dockerfile: cashbarber-bridge/Dockerfile
+    env_file: cashbarber.env
+    volumes:
+      - cashbarber-data:/app/cashbarber-bridge/data
+    networks: [cashbarber]
+    restart: unless-stopped
+    init: true
+    shm_size: 256mb
+    mem_limit: 1536m
+    stop_grace_period: 30s
+    logging: *logging
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3200/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
   caddy:
     image: caddy:2
     environment:
@@ -90,8 +110,10 @@ networks:
     internal: true
   whatsapp:
   web:
+  cashbarber:
 volumes:
   postgres-data:
   whatsapp-data:
   caddy-data:
   caddy-config:
+  cashbarber-data:

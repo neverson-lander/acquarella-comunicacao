@@ -54,9 +54,9 @@ export function createWaitingAlerts({pool,send,now=Date.now,requiresWindow=()=>t
     const pending=(await client.query(`select c.id,c.name,c.customer,c.assigned_to,u.name as assignee_name,p.waiting_since
       from conversations c left join users u on u.id=c.assigned_to and u.tenant=c.tenant
       cross join lateral (select min(m.created) as waiting_since from messages m
-        where m.conversation=c.id and m.direction='in' and m.kind<>'reaction' and m.created<=$2
-        and m.created>=coalesce((select max(r.created) from messages r where r.conversation=c.id and r.direction='out' and r.state='sent'),0)) p
-      where c.account=$1 and c.tenant=$3 and c.status='open' and c.customer not like 'demo-%' and p.waiting_since is not null
+        where m.conversation=c.id and m.direction='in' and m.attendance_relevant and m.kind<>'reaction' and m.created<=$2
+        and m.created>coalesce((select max(r.created) from messages r where r.conversation=c.id and r.direction='out' and r.state='sent' and r.kind<>'reaction'),0)) p
+      where c.account=$1 and c.tenant=$3 and c.status='open' and c.attendance_eligible and c.customer not like 'demo-%' and p.waiting_since is not null
       order by p.waiting_since,c.id`,[a.id,time,a.tenant])).rows.filter(c=>!excluded.some(phone=>sameWhatsAppPhone(c.customer,phone)));
     return {
       queue:queueEnabled?pending.filter(c=>!c.assigned_to&&time-Number(c.waiting_since)>=a.queue_alert_minutes*60000):[],

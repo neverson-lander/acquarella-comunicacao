@@ -140,3 +140,13 @@ dialog::backdrop { background: #002b3a70; }
   .chat { height: 560px; min-height: 510px; }
   .modal-footer { flex-wrap: wrap; }
 }
+
+/* Channel identities share the same marks in contacts, inbox and channel cards. */
+.channel-logo{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;width:30px;height:30px;border-radius:9px;vertical-align:middle;background:#647986;color:white}
+.channel-logo svg{display:block;width:22px;height:22px}
+.channel-logo-whatsapp{background:#168a56}.channel-logo-instagram{background:linear-gradient(135deg,#7c3aed,#d62976 60%,#f5a623)}.channel-logo-messenger{background:#087cf0}
+.conversation .channel-avatar,.chat-header .channel-avatar{background:transparent;color:inherit}
+.conversation .channel-avatar .channel-logo,.chat-header>.channel-avatar .channel-logo{width:40px;height:40px;border-radius:12px}
+.conversation .channel-avatar .channel-logo svg,.chat-header>.channel-avatar .channel-logo svg{width:29px;height:29px}
+.chat-header small .channel-logo,.route-strip .channel-logo{width:18px;height:18px;border-radius:5px}.chat-header small .channel-logo svg,.route-strip .channel-logo svg{width:14px;height:14px}
+.contact-channel{display:flex;align-items:flex-start;gap:10px;min-width:150px}.contact-channel>span:last-child{min-width:0}.contact-channel strong{display:block;font-size:12px}.contact-channel small{margin-top:4px;overflow-wrap:anywhere}.contact-channel .channel-logo{width:28px;height:28px;border-radius:8px}.contact-channel .channel-logo svg{width:20px;height:20px}

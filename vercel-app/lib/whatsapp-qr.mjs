@@ -1,6 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import {qrHeaders,qrSessionId} from './qr-protocol.mjs';
 import {mediaDisposition} from './media-filename.mjs';
+import {referralTouch} from './crm-domain.mjs';
 
 const fail=(message,status=503,definite=true)=>Object.assign(Error(message),{status,definite});
 export function qrConfiguration(env=process.env) {
@@ -17,7 +18,7 @@ export function createQrClient({env=process.env,fetcher=fetch}={}) {
     const {url,secret}=qrConfiguration(env),path=`/sessions/${qrSessionId(account)}${action}`,body=input?JSON.stringify(input):'';
     let response;
     try{response=await fetcher(url+path,{method,headers:{...qrHeaders(secret,method,path,body),...(range?{Range:range}:{})},...(body?{body}:{}),redirect:'error',signal:AbortSignal.timeout(45000)});}
-    catch{throw fail('Sem resposta do serviço WhatsApp por QR Code. Confira a conexão antes de reenviar.',502,action!=='/messages');}
+    catch{throw fail('Sem resposta do serviço WhatsApp por QR Code. Confira a conexão antes de reenviar.',502,!['/messages','/edit','/forward'].includes(action));}
     if(!response.ok){const result=await response.json().catch(()=>({}));throw fail(result.error||'Serviço WhatsApp por QR Code indisponível.',[404,416].includes(response.status)?response.status:502,result.definite===true||(response.status<500&&result.definite!==false));}
     return raw?response:response.json();
   }
@@ -27,8 +28,12 @@ export function createQrClient({env=process.env,fetcher=fetch}={}) {
     disconnect:account=>request(account,'/disconnect'),
     pause:account=>request(account,'/pause'),
     resume:account=>request(account,'/resume'),
-    async send(account,recipient,body,media,idempotencyKey=randomUUID()) {
-      const result=await request(account,'/messages',{input:{recipient,body,media,idempotencyKey}});
+    revoke:(account,input)=>request(account,'/revoke',{input}),
+    react:(account,input)=>request(account,'/react',{input}),
+    edit:(account,input)=>request(account,'/edit',{input}),
+    forward:(account,input)=>request(account,'/forward',{input}),
+    async send(account,recipient,body,media,idempotencyKey=randomUUID(),replyTo=null) {
+      const result=await request(account,'/messages',{input:{recipient,body,media,idempotencyKey,...(replyTo?{replyTo:{external:replyTo.external,body:replyTo.body}}:{})}});
       if(!result.external)throw fail('O WhatsApp não confirmou o identificador do envio.',502,false);
       return result.external;
     },
@@ -50,16 +55,22 @@ export function qrInboundPayload(account,event) {
   if(event?.session!==qrSessionId(account)||!event.id||event.id.length>200)throw fail('Evento QR inválido.',400);
   const m=event.message;
   if(!m||!/^\d{10,15}$/.test(m.customer)||typeof m.external!=='string'||!m.external||m.external.length>200||typeof m.body!=='string'||m.body.length>12000||!Number.isSafeInteger(m.timestamp)||m.timestamp<1||m.timestamp>Date.now()+300000)throw fail('Mensagem QR inválida.',400);
-  const kinds=['text','image','audio','video','document','sticker','reaction','unsupported'];
+  const kinds=['text','image','audio','video','document','sticker','reaction','deletion','edit','unsupported'];
   if(!kinds.includes(m.kind)||typeof m.fromMe!=='boolean')throw fail('Tipo de mensagem QR inválido.',400);
+  if(m.kind==='deletion'&&(typeof m.deletion?.target!=='string'||!m.deletion.target||m.deletion.target.length>200))throw fail('Exclusão QR inválida.',400);
+  if(m.kind==='edit'&&(typeof m.edit?.target!=='string'||!m.edit.target||m.edit.target.length>200||!m.body.trim()))throw fail('Edição QR inválida.',400);
   let media=null;
   if(m.media){
     if(!/^[a-f0-9-]{36}$/i.test(m.media.qrId||'')||!['image','audio','video','document','sticker'].includes(m.kind)||typeof m.media.mime_type!=='string'||m.media.mime_type.length>100)throw fail('Anexo QR inválido.',400);
-    media={qrId:m.media.qrId,name:String(m.media.name||'anexo').slice(0,180),mime_type:m.media.mime_type,size:Number(m.media.size)||0};
+    media={qrId:m.media.qrId,name:String(m.media.name||'anexo').slice(0,180),mime_type:m.media.mime_type,size:Number(m.media.size)||0,...(typeof m.media.caption==='string'&&m.media.caption?{caption:m.media.caption.slice(0,12000)}:{})};
   }
+  const referral=!m.fromMe?referralTouch(m.referral)?.referral:null;
   return {qrEcho:m.fromMe,entry:[{changes:[{value:{metadata:{phone_number_id:account.external},contacts:[{wa_id:m.customer,profile:{name:String(m.name||'').slice(0,200)}}],messages:[{
     id:m.external,from:m.customer,timestamp:Math.floor(m.timestamp/1000),type:m.kind,text:{body:m.body},qrMedia:media,
     ...(m.context?{context:{id:String(m.context).slice(0,200)}}:{}),
-    ...(m.reaction?{reaction:{message_id:String(m.reaction.target||'').slice(0,200),emoji:String(m.reaction.emoji||'').slice(0,32)}}:{})
+    ...(referral?{referral}:{}),
+    ...(m.reaction?{reaction:{message_id:String(m.reaction.target||'').slice(0,200),emoji:String(m.reaction.emoji||'').slice(0,32)}}:{}),
+    ...(m.kind==='deletion'?{deletion:{message_id:m.deletion.target}}:{}),
+    ...(m.kind==='edit'?{edit:{message_id:m.edit.target}}:{})
   }]}}]}]};
 }

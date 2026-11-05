@@ -41,6 +41,8 @@ Use `/health` para verificar o processo, a tela **Conexão / QR Code** para a se
 
 ## Testes
 
+O leitor reconhece o texto, rodapé e rótulos de botões de modelos hidratados e interativos, incluindo mídia no cabeçalho. Metadados internos e IDs de respostas não são exibidos. Mensagens entregues apenas como `placeholderMessage` recebem uma indicação de conteúdo indisponível; não há texto original para reconstruir. Mídia de visualização única permanece no fluxo nativo do WhatsApp.
+
 Na pasta `vercel-app`: `node --test tests/*.test.mjs`. Nesta pasta: `node --test tests/*.test.mjs`. Os testes usam banco isolado e sockets/WhatsApp simulados; não enviam mensagens a pessoas nem validam o pareamento de um número real.
 
 Referências: [Baileys](https://github.com/WhiskeySockets/Baileys), [exemplo oficial do socket](https://github.com/WhiskeySockets/Baileys/blob/master/Example/example.ts).

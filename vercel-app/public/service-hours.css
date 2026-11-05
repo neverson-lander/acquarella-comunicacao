@@ -1,1 +1,39 @@
 .service-hours-editor,.service-hours-routing{display:grid;gap:14px;min-width:0}.service-hours-editor fieldset{border:1px solid var(--line,#d7e4e5);border-radius:12px;padding:12px;min-width:0}.service-hours-editor legend{font-weight:650;padding:0 6px}.service-hours-slot{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:4px 0 12px}.service-hours-slot label{flex:1;min-width:95px;margin:0!important}.service-hours-slot label>span{display:block;font-size:12px;margin-bottom:4px}.service-hours-slot input{width:100%;box-sizing:border-box}.service-hours-slot>button{align-self:end}.service-hours-routing{border-top:1px solid var(--line,#d7e4e5);padding-top:20px;margin-top:22px}.service-hours-routing h3{margin:0}.service-hours-editor .field-note{margin:0}.account-card .service-hours-summary{font-size:12px;line-height:1.6}.service-hours-editor [hidden]{display:none!important}@media(max-width:480px){.service-hours-slot{gap:7px}.service-hours-slot>button{width:100%}}
+
+#modal.hours-config-dialog { width:min(800px,calc(100vw - 24px)); }
+.service-hours-tabs { display:flex; gap:18px; padding:0 24px; border-bottom:1px solid var(--line); flex-shrink:0; }
+.service-hours-tabs button { padding:14px 0 12px; background:transparent; color:#587681; border-radius:0; border-bottom:2px solid transparent; font-size:12px; }
+.service-hours-tabs button[aria-selected=true] { color:#004358; border-bottom-color:#c41450; font-weight:650; }
+.hours-config-dialog .service-hours-editor { gap:10px; }
+.hours-config-dialog .service-hours-week-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-top:6px; }
+.hours-config-dialog .service-hours-week-heading h3 { font-size:14px; margin:0; }
+.hours-config-dialog .service-hours-week-heading button { font-size:11px; white-space:normal; }
+.hours-config-dialog .service-hours-feedback { margin:0; padding:10px 12px; border-radius:6px; background:#edf6f1; color:#246544; font-size:12px; }
+.hours-config-dialog .service-hours-feedback:empty { display:none; }
+.hours-config-dialog .service-hours-day { border:1px solid var(--line); border-radius:10px; overflow:hidden; min-width:0; }
+.hours-config-dialog .service-hours-day>summary { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 16px; cursor:pointer; background:#f7fafb; }
+.hours-config-dialog .service-hours-day>summary:before { content:'›'; font-size:18px; color:#587681; }
+.hours-config-dialog .service-hours-day[open]>summary:before { transform:rotate(90deg); }
+.hours-config-dialog .service-hours-day>summary strong { font-size:12px; flex-shrink:0; }
+.hours-config-dialog [data-day-summary] { flex:1; text-align:right; font-size:11px; color:#466a78; overflow-wrap:anywhere; }
+.hours-config-dialog [data-day-summary].is-closed { color:#81949c; }
+.hours-config-dialog .service-hours-day-body { padding:14px 16px; border-top:1px solid var(--line); }
+.hours-config-dialog .service-hours-day:not([open])>.service-hours-day-body { display:none; }
+.hours-config-dialog .service-hours-slot { display:grid; grid-template-columns:minmax(0,1fr) 24px minmax(0,1fr) auto; align-items:end; gap:10px; margin:0 0 14px; }
+.hours-config-dialog .service-hours-slot label { min-width:0; }
+.hours-config-dialog .service-hours-slot input { min-width:0; height:42px; padding:10px 12px; }
+.hours-config-dialog .service-hours-slot>span { text-align:center; padding-bottom:14px; font-size:11px; color:#587681; }
+.hours-config-dialog .service-hours-slot>button { min-height:42px; }
+.hours-config-dialog .service-hours-closed { padding:10px 12px; background:#f4f8fa; border-radius:6px; margin:0 0 12px!important; }
+.hours-config-dialog .service-hours-routing { display:block; border:0; margin:0; padding:0; }
+.hours-config-dialog .service-hours-route-fields { display:grid; gap:16px; margin-top:16px; }
+.hours-config-dialog [data-add-slot] { min-height:36px; }
+@media(max-width:600px) {
+ .service-hours-tabs { gap:14px; padding:0 18px; }
+ .service-hours-tabs button { flex:1; font-size:11px; }
+ .hours-config-dialog .service-hours-week-heading button { width:100%; }
+ .hours-config-dialog .service-hours-day>summary { padding:12px; gap:8px; }
+ .hours-config-dialog .service-hours-day-body { padding:12px; }
+ .hours-config-dialog .service-hours-slot { grid-template-columns:minmax(0,1fr) 20px minmax(0,1fr); gap:8px; }
+ .hours-config-dialog .service-hours-slot>button { grid-column:1/-1; width:100%; min-height:36px; }
+}

@@ -6,7 +6,7 @@ import {PGlite} from '@electric-sql/pglite';
 import {createCrm} from '../lib/crm-store.mjs';
 import {createAttendance} from '../lib/attendance-store.mjs';
 import {seesAttendance,worksAttendance,canReplyAttendance} from '../lib/attendance-policy.mjs';
-import {referralTouch,cents,selectedTouch,summarize,realOpportunity} from '../lib/crm-domain.mjs';
+import {referralTouch,cents,selectedTouch,automaticPaidTouch,summarize,realOpportunity} from '../lib/crm-domain.mjs';
 import {createMetaAttribution,creativeDetails} from '../lib/meta-attribution.mjs';
 import {createInboundHandler} from '../lib/sac-inbound.mjs';
 import {metaMediaUrl} from '../public/meta-media.js';
@@ -19,7 +19,7 @@ async function execute(sql,args=[]){const r=await db.query(sql,args);for(const f
 let pending=Promise.resolve();
 const pool={query:execute,connect:async()=>{const previous=pending;let release;pending=new Promise(resolve=>{release=resolve;});await previous;return{query:execute,release};}};
 before(async()=>{
-  for(const file of ['202609290001_initial','202609290003_whatsapp_bridge','202609300004_sac','202609300005_crm','202609300006_attendance','202609300007_meta_attribution','202610020008_closure_scheduling','20261016042106_contact_directory_and_channel_activation']){
+  for(const file of ['202609290001_initial','202609290003_whatsapp_bridge','202609300004_sac','202609300005_crm','202609300006_attendance','202609300007_meta_attribution','202610020008_closure_scheduling','20261016042106_contact_directory_and_channel_activation','202610190001_cashbarber','202610190002_booking_outcomes','202610200001_channel_deletion','202610210002_bulk_closure_reason','202610210003_instagram_attendance','202610210004_instagram_social_attribution','202610220001_campaign_booking_checks','202610240002_cashbarber_changes','20261031175842_message_timing','202611040001_campaign_check_history']){
     const sql=await readFile(new URL('../supabase/migrations/'+file+'.sql',import.meta.url),'utf8');
     await db.exec(sql.replace('create extension if not exists pgcrypto;',''));
   }
@@ -44,6 +44,140 @@ async function fixture(referral){
   return {cid,o,conversation,account,message};
 }
 const dealInput=o=>({stage:o.stage,owner:o.owner,service:o.service,offer:o.offer,notes:o.notes,loss_reason:o.loss_reason,tags:[]});
+
+test('attendance tags support multiple choices without replacing CRM fields and preserve permissions, history and concurrent changes',async()=>{
+ const f=await fixture();await attendance.claim(users.agent,f.cid);
+ const makeTag=async(name,kind='tag',t=tenant)=>(await execute('insert into crm_catalog(tenant,kind,name) values($1,$2,$3) returning id',[t,kind,name])).rows[0].id;
+ const first=await makeTag('Prioridade'),second=await makeTag('Retorno'),foreign=await makeTag('Outro tenant','tag',otherTenant),service=await makeTag('Serviço','service');
+ const before=(await execute('select * from crm_opportunities where id=$1',[f.o.id])).rows[0];
+ await assert.rejects(crm.setAttendanceTags(users.agent,f.cid,null),e=>e.status===400);
+ await crm.setAttendanceTags(users.agent,f.cid,{tags:[first,second,first],expectedTags:[]});
+ const saved=(await execute('select tag from crm_opportunity_tags where opportunity=$1',[f.o.id])).rows.map(t=>t.tag).sort();assert.deepEqual(saved,[first,second].sort());
+ const after=(await execute('select * from crm_opportunities where id=$1',[f.o.id])).rows[0];for(const field of ['notes','stage','owner','service','offer','contact'])assert.deepEqual(after[field],before[field]);
+ const history=(await execute('select * from crm_history where opportunity=$1 order by created desc',[f.o.id])).rows.find(h=>h.action.startsWith('Tags do atendimento'));assert.equal(history.actor_name,users.agent.name);assert.match(history.action,/Prioridade/);assert.match(history.action,/Retorno/);
+ await assert.rejects(crm.setAttendanceTags(users.agent,f.cid,{tags:[],expectedTags:[]}),e=>e.status===409);
+ await assert.rejects(crm.setAttendanceTags(users.agent2,f.cid,{tags:[],expectedTags:saved}),e=>e.status===403);
+ await assert.rejects(crm.setAttendanceTags(users.viewer,f.cid,{tags:[],expectedTags:saved}),e=>e.status===403);
+ await assert.rejects(crm.setAttendanceTags(users.outsider,f.cid,{tags:[],expectedTags:saved}),e=>e.status===404);
+ for(const tag of [foreign,service])await assert.rejects(crm.setAttendanceTags(users.agent,f.cid,{tags:[tag],expectedTags:saved}),e=>e.status===400);
+ for(const tags of [[null],['invalid'],Array(31).fill(first)])await assert.rejects(crm.setAttendanceTags(users.agent,f.cid,{tags,expectedTags:saved}),e=>e.status===400);
+ await execute('update crm_catalog set active=false where id=$1',[first]);await crm.setAttendanceTags(users.admin,f.cid,{tags:[first],expectedTags:saved});
+ await crm.setAttendanceTags(users.receptionist,f.cid,{tags:[],expectedTags:[first]});
+ await assert.rejects(crm.setAttendanceTags(users.agent,f.cid,{tags:[first],expectedTags:[]}),e=>e.status===400);
+ assert.equal((await execute('select * from crm_opportunity_tags where opportunity=$1',[f.o.id])).rows.length,0);
+ await execute("update conversations set status='resolved' where id=$1",[f.cid]);await assert.rejects(crm.setAttendanceTags(users.admin,f.cid,{tags:[second],expectedTags:[]}),e=>e.status===403);
+ const queued=await fixture();await assert.rejects(crm.setAttendanceTags(users.admin,queued.cid,{tags:[second],expectedTags:[]}),e=>e.status===403);
+});
+
+test('attendance tags repair a missing CRM record inside the same transaction',async()=>{
+ const cid=randomUUID(),tag=(await execute("insert into crm_catalog(tenant,kind,name) values($1,'tag','Cadastro legado') returning id",[tenant])).rows[0].id;
+ await execute("insert into conversations(id,tenant,account,customer,name,status,updated,last_inbound,assigned_to) values($1,$2,$3,$4,'Cliente legado','open',$5,$5,$6)",[cid,tenant,accountId,randomUUID(),now(),users.agent.id]);
+ await crm.setAttendanceTags(users.agent,cid,{tags:[tag],expectedTags:[]});
+ const o=(await execute('select * from crm_opportunities where conversation=$1',[cid])).rows[0];assert.ok(o);assert.equal((await execute('select tag from crm_opportunity_tags where opportunity=$1',[o.id])).rows[0].tag,tag);
+});
+
+test('bulk queue closure preserves active cases, new messages, permissions and booking evidence',async()=>{
+  const fresh=await fixture(),claimed=await fixture(),changed=await fixture(),replied=await fixture(),returned=await fixture(),booked=await fixture();
+  await attendance.claim(users.agent,returned.cid);await attendance.transfer(users.admin,returned.cid,{assigned_to:null});
+  await execute("insert into messages(id,conversation,direction,body,created,state) values($1,$2,'out','Resposta externa',$3,'sent')",[randomUUID(),replied.cid,now()]);
+  await execute("insert into cashbarber_bookings(id,tenant,conversation,actor,state,quote,created,updated,expires) values($1,$2,$3,$4,'uncertain','{}',$5,$5,$5)",[randomUUID(),tenant,booked.cid,users.admin.id,now()]);
+  for(const role of ['agent','viewer'])await assert.rejects(attendance.queueClosePreview(users[role]),e=>e.status===403);
+  const preview=await attendance.queueClosePreview(users.receptionist),ids=preview.items.map(c=>c.id);
+  for(const f of [fresh,replied,returned])assert.ok(ids.includes(f.cid));assert.ok(!ids.includes(booked.cid));
+  assert.equal((await attendance.queueClosePreview({...users.receptionist,accounts:[]})).items.length,0);
+  const selected=preview.items.filter(c=>[fresh.cid,claimed.cid,changed.cid].includes(c.id));assert.equal(selected.length,3);
+  assert.equal((await attendance.closeQueue({...users.admin,tenant:otherTenant},{reason:'Clientes atendidos diretamente pelo celular',items:selected})).closed.length,0);
+  assert.equal((await attendance.closeQueue({...users.receptionist,accounts:[]},{reason:'Clientes atendidos diretamente pelo celular',items:selected})).closed.length,0);
+  await attendance.claim(users.agent,claimed.cid);
+  // Even an inbound message with an unchanged timestamp invalidates the preview.
+  await execute("insert into messages(id,conversation,direction,body,created,state) values($1,$2,'in','Nova mensagem',$3,'received')",[randomUUID(),changed.cid,now()]);
+  await assert.rejects(attendance.closeQueue(users.agent,{reason:'Clientes atendidos diretamente pelo celular',items:selected}),e=>e.status===403);
+  assert.equal((await attendance.closeQueue(users.outsider,{reason:'Clientes atendidos diretamente pelo celular',items:selected}).catch(e=>({status:e.status}))).status,403);
+  for(const reason of [undefined,'','   ','x'.repeat(1001)])await assert.rejects(attendance.closeQueue(users.admin,{reason,items:selected}),e=>e.status===400);
+  assert.equal((await execute('select status from conversations where id=$1',[fresh.cid])).rows[0].status,'open');
+  const result=await attendance.closeQueue(users.admin,{reason:'Clientes atendidos diretamente pelo celular',items:selected});assert.deepEqual(result.closed,[fresh.cid]);assert.equal(result.skipped,2);
+  assert.equal((await execute('select status from conversations where id=$1',[fresh.cid])).rows[0].status,'resolved');
+  const h=(await execute("select * from attendance_history where conversation=$1 and action='Atendimento encerrado em massa sem início'",[fresh.cid])).rows[0];
+  assert.equal(h.reason,'Clientes atendidos diretamente pelo celular');assert.equal(h.actor_name,users.admin.name);
+  assert.match((await execute("select action from audit where tenant=$1 order by created desc",[tenant])).rows[0].action,/Encerramento em massa por admin: 1 atendimento\(s\). Motivo: Clientes atendidos diretamente pelo celular/);
+  assert.equal(h.actor,users.admin.id);assert.equal(h.scheduling,null);assert.equal(h.next_owner,null);
+  assert.equal((await attendance.closeQueue(users.admin,{reason:'Clientes atendidos diretamente pelo celular',items:selected})).closed.length,0);
+  // Historical replies and ownership must not hide conversations currently waiting in the queue.
+  const returningItems=preview.items.filter(c=>[replied.cid,returned.cid].includes(c.id));
+  const returningResult=await attendance.closeQueue(users.admin,{reason:'Clientes atendidos diretamente pelo celular',items:returningItems});
+  assert.deepEqual(new Set(returningResult.closed),new Set([replied.cid,returned.cid]));assert.equal(returningResult.skipped,0);
+  assert.equal((await execute('select status from conversations where id=$1',[booked.cid])).rows[0].status,'open');
+  assert.ok(!(await attendance.queueClosePreview(users.admin)).items.some(c=>c.id===claimed.cid));
+  await assert.rejects(attendance.closeQueue(users.admin,{reason:'Clientes atendidos diretamente pelo celular',items:[]}),e=>e.status===400);
+  await assert.rejects(attendance.closeQueue(users.admin,{reason:'Clientes atendidos diretamente pelo celular',items:[selected[0],selected[0]]}),e=>e.status===400);
+  await assert.rejects(attendance.closeQueue(users.admin,{reason:'Clientes atendidos diretamente pelo celular',items:[selected[0],{...selected[0],id:selected[0].id.toUpperCase()}]}),e=>e.status===400);
+  await assert.rejects(attendance.closeQueue(users.admin,{reason:'Clientes atendidos diretamente pelo celular',items:[{id:fresh.cid}]}),e=>e.status===400);
+});
+
+test('confirmed CashBarber prices survive closing, catalogue changes and reopening without duplicate inclusion',async()=>{
+  const f=await fixture();await attendance.claim(users.agent,f.cid);
+  const booking=randomUUID(),quote={clientId:'123',clientName:'Maria',service:'Manicure',professionalName:'Isaura',date:'2026-10-22',start:'13:00',end:'13:50',price:4500,duration:50};
+  await execute("insert into cashbarber_bookings(id,tenant,conversation,actor,state,quote,receipt,created,updated,expires) values($1,$2,$3,$4,'confirmed',$5,$6,$7,$7,$7)",[booking,tenant,f.cid,users.agent.id,JSON.stringify(quote),JSON.stringify({externalId:'987'}),now()]);
+  await assert.rejects(execute("update cashbarber_bookings set quote=jsonb_set(quote,'{price}','9999') where id=$1",[booking]),/não podem ser alterados/);
+  await assert.rejects(attendance.status(users.agent,f.cid,'resolved',{source:'organic',had_scheduling:true,cash_booking_ids:[]}),e=>e.status===409);
+  await assert.rejects(attendance.status(users.agent,f.cid,'resolved',{source:'organic',had_scheduling:false,cash_booking_ids:[booking]}),/Há serviços confirmados/);
+  await attendance.status(users.agent,f.cid,'resolved',{source:'organic',had_scheduling:true,cash_booking_ids:[booking],cash_price:9999});
+  const h=(await execute("select * from attendance_history where conversation=$1 and action='Atendimento finalizado'",[f.cid])).rows[0];
+  assert.equal(h.scheduling.services[0].price_cents,4500);assert.equal(h.scheduling.services[0].name,'Manicure');assert.equal(h.scheduling.booked_total_cents,4500);
+  assert.equal((await execute('select closure_id from cashbarber_bookings where id=$1',[booking])).rows[0].closure_id,h.id);
+  assert.ok((await crm.state(users.agent)).bookings.some(b=>b.id===booking));
+  assert.ok(!(await crm.state(users.agent2)).bookings.some(b=>b.id===booking));
+  assert.ok(!(await crm.state(users.outsider)).bookings.some(b=>b.id===booking));
+  await attendance.status(users.agent,f.cid,'open');await attendance.status(users.agent,f.cid,'resolved',{source:'organic',had_scheduling:false});
+  const history=(await execute("select scheduling from attendance_history where conversation=$1 and action='Atendimento finalizado'",[f.cid])).rows;
+  assert.equal(history.flatMap(h=>h.scheduling.services).filter(s=>s.booking_id===booking).length,1);
+  assert.equal((await execute('select quote from cashbarber_bookings where id=$1',[booking])).rows[0].quote.price,4500);
+});
+
+test('uncertain CashBarber results block closure and zero-price plan reservations are included',async()=>{
+  const f=await fixture();await attendance.claim(users.agent,f.cid);const booking=randomUUID();
+  const quote={clientId:'123',clientName:'Maria',service:'Manicure no plano',professionalName:'Isaura',date:'2026-10-22',start:'13:00',end:'13:50',price:0};
+  await execute("insert into cashbarber_bookings(id,tenant,conversation,actor,state,quote,created,updated,expires) values($1,$2,$3,$4,'uncertain',$5,$6,$6,$6)",[booking,tenant,f.cid,users.agent.id,JSON.stringify(quote),now()]);
+  await assert.rejects(attendance.status(users.agent,f.cid,'resolved',{source:'organic',had_scheduling:false}),/agendamento pendente/);
+  await execute("update cashbarber_bookings set state='confirmed' where id=$1",[booking]);
+  await attendance.status(users.agent,f.cid,'resolved',{source:'organic',had_scheduling:true,cash_booking_ids:[booking]});
+  const h=(await execute("select scheduling from attendance_history where conversation=$1 and action='Atendimento finalizado'",[f.cid])).rows[0];
+  assert.equal(h.scheduling.services[0].price_cents,0);assert.equal(h.scheduling.had_scheduling,true);
+});
+
+test('organic closure without scheduling repairs a conversation missing its CRM link atomically',async()=>{
+  const f=await fixture();await attendance.claim(users.agent,f.cid);
+  await execute('delete from crm_touches where opportunity=$1',[f.o.id]);
+  await execute('delete from crm_opportunities where id=$1',[f.o.id]);
+  await execute("update accounts set channel='whatsapp' where id=$1",[accountId]);
+  const phone='5534999998765';
+  await execute('update conversations set customer=$1 where id=$2',[phone,f.cid]);
+  await execute('update crm_contacts set account=$1,phone=$2,name_manual=true where id=$3',[accountId,phone,f.o.contact]);
+  try{
+    await assert.rejects(attendance.status(users.agent2,f.cid,'resolved',{source:'organic',had_scheduling:false}),e=>e.status===403);
+    assert.equal((await execute('select id from crm_opportunities where conversation=$1',[f.cid])).rows.length,0);
+    await attendance.status(users.agent,f.cid,'resolved',{source:'organic',had_scheduling:false,scheduled_services:[],cash_booking_ids:[]});
+    const o=(await execute('select * from crm_opportunities where conversation=$1',[f.cid])).rows[0];
+    assert.equal(o.contact,f.o.contact);assert.equal(o.owner,users.agent.id);
+    assert.equal((await execute('select count(*) as n from crm_contacts where account=$1 and phone=$2',[accountId,phone])).rows[0].n,1);
+    assert.equal((await execute('select source from crm_touches where opportunity=$1',[o.id])).rows[0].source,'organic');
+    const h=(await execute("select scheduling from attendance_history where conversation=$1 and action='Atendimento finalizado'",[f.cid])).rows[0];
+    assert.equal(h.scheduling.had_scheduling,false);assert.deepEqual(h.scheduling.services,[]);
+    await attendance.status(users.agent,f.cid,'open');
+    await attendance.status(users.agent,f.cid,'resolved',{source:'organic',had_scheduling:false});
+    assert.equal((await execute('select id from crm_opportunities where conversation=$1',[f.cid])).rows[0].id,o.id);
+  }finally{await execute("update accounts set channel='instagram' where id=$1",[accountId]);}
+});
+
+test('recovered original webhook ad evidence enriches unknown attribution without duplicate touches or overriding manual corrections',async()=>{
+  const f=await fixture();const before=(await execute('select first_contact from crm_opportunities where id=$1',[f.o.id])).rows[0].first_contact;
+  await execute("insert into crm_touches(tenant,opportunity,event_key,source,evidence,referral,created) values($1,$2,'manual-correction','organic','manual',$3,$4)",[tenant,f.o.id,JSON.stringify({correct_first:true}),now()+1]);
+  const message={...f.message,referral:{source_type:'ad',source_id:'120253089514020134',source_app:'instagram',headline:'Day Use'}};
+  await crm.capture(f.conversation,f.account,message);await crm.capture(f.conversation,f.account,message);
+  const touches=(await execute('select * from crm_touches where opportunity=$1',[f.o.id])).rows;assert.equal(touches.length,2);
+  assert.equal(touches.find(t=>t.event_key===f.message.external).source,'paid');assert.equal(touches.find(t=>t.event_key===f.message.external).referral.source_app,'instagram');assert.equal(selectedTouch({touches}).source,'organic');
+  assert.equal((await execute('select first_contact from crm_opportunities where id=$1',[f.o.id])).rows[0].first_contact,before);
+});
 
 test('money is stored as integer cents and malformed values are rejected',()=>{
   assert.equal(cents('129,90'),12990);assert.equal(cents('0'),0);
@@ -112,7 +246,8 @@ test('manual CRM paid attribution also rejects unregistered ads instead of silen
   assert.equal((await execute('select ad_id from crm_ads where tenant=$1 and ad_id=$2',[tenant,'777771'])).rows.length,0);
 });
 
-test('closing requires a scheduling answer and validates every selected service atomically',async()=>{
+test('closing requires CashBarber professional and services when no central booking exists, with optional missing client',async()=>{
+  const attendance=createAttendance({pool,permitted,now,resolveExternalScheduling:async(user,input)=>{if(!input?.services?.length)throw Object.assign(Error('Selecione os dados CashBarber'),{status:400});return {services:[{id:'cashbarber-service:1:2',name:'Serviço CashBarber',professional:'Isaura',source:'cashbarber_external'}],client_id:null,client_name:'',client_not_found:true};}});
   const f=await fixture();await attendance.claim(users.agent,f.cid);
   const service=randomUUID(),second=randomUUID(),archived=randomUUID(),foreign=randomUUID(),tag=randomUUID();
   for(const [id,company,kind,active,name] of [[service,tenant,'service',true,'Closure service A'],[second,tenant,'service',true,'Closure service B'],[archived,tenant,'service',false,'Closure archived'],[foreign,otherTenant,'service',true,'Closure foreign'],[tag,tenant,'tag',true,'Closure tag']]){
@@ -125,10 +260,10 @@ test('closing requires a scheduling answer and validates every selected service 
     assert.equal((await execute('select count(*) as n from crm_touches where opportunity=$1',[f.o.id])).rows[0].n,baseline);
     assert.equal((await execute('select count(*) as n from attendance_history where conversation=$1',[f.cid])).rows[0].n,1);
   }
-  await attendance.status(users.agent,f.cid,'resolved',{source:'organic',had_scheduling:true,scheduled_services:[service,second,service]});
+  await attendance.status(users.agent,f.cid,'resolved',{source:'organic',had_scheduling:true,external_scheduling:{services:[{professional_id:'1',service_id:'2'}],client_not_found:true}});
   const history=(await execute("select * from attendance_history where conversation=$1 and action='Atendimento finalizado'",[f.cid])).rows[0];
   assert.equal(history.actor,users.agent.id);
-  assert.deepEqual(history.scheduling,{had_scheduling:true,services:[{id:service,name:'Closure service A'},{id:second,name:'Closure service B'}]});
+  assert.deepEqual(history.scheduling,{had_scheduling:true,booked_total_cents:0,services:[{id:'cashbarber-service:1:2',name:'Serviço CashBarber',professional:'Isaura',source:'cashbarber_external'}],external_client:{id:null,name:'',not_found:true}});
   await execute('update crm_catalog set name=$1,active=false where id=$2',['Renamed service',service]);
   assert.deepEqual((await execute('select scheduling from attendance_history where id=$1',[history.id])).rows[0].scheduling,history.scheduling);
   await assert.rejects(attendance.status(users.agent,f.cid,'resolved',{source:'organic',had_scheduling:true,scheduled_services:[second]}),e=>e.status===409);
@@ -328,4 +463,80 @@ test('legacy demonstration conversations are excluded even after their account c
   assert.equal(realOpportunity({mode:'live',customer:'123'}),true);
   const f=await fixture();await execute("update conversations set customer='demo-test' where id=$1",[f.cid]);await attendance.claim(users.agent,f.cid);
   await assert.rejects(crm.route(users.agent,'/api/crm/opportunities/'+f.o.id+'/events',{id:randomUUID(),kind:'sale',amount:'10',occurred:now()}),/demonstrativas/);
+});
+
+test('Instagram interactions close individually and in bulk without starting attendances',async()=>{
+  const social=await fixture(),changed=await fixture(),claimed=await fixture(),bulk=await fixture(),ordinary=await fixture();
+  for(const f of [social,changed,claimed,bulk])await execute('update conversations set attendance_eligible=false where id=$1',[f.cid]);
+  const snapshot=f=>({updated:f.conversation.updated,last_inbound:f.conversation.last_inbound});
+  await assert.rejects(attendance.closeInteraction(users.viewer,social.cid,snapshot(social)),e=>e.status===403);
+  await assert.rejects(attendance.closeInteraction({...users.agent,accounts:[]},social.cid,snapshot(social)),e=>e.status===403);
+  await assert.rejects(attendance.closeInteraction(users.outsider,social.cid,snapshot(social)),e=>e.status===404);
+  await assert.rejects(attendance.closeInteraction(users.admin,ordinary.cid,snapshot(ordinary)),e=>e.status===409);
+  await attendance.claim(users.agent,claimed.cid);
+  await assert.rejects(attendance.closeInteraction(users.admin,claimed.cid,snapshot(claimed)),e=>e.status===409);
+  await execute('update conversations set last_inbound=last_inbound+1000 where id=$1',[changed.cid]);
+  await assert.rejects(attendance.closeInteraction(users.admin,changed.cid,snapshot(changed)),e=>e.status===409);
+  const jobsBefore=(await execute('select count(*) as n from jobs')).rows[0].n;
+  await attendance.closeInteraction(users.agent,social.cid,snapshot(social));
+  const record=(await execute('select * from conversations where id=$1',[social.cid])).rows[0];
+  assert.equal(record.status,'resolved');assert.equal(record.attendance_eligible,false);assert.equal(record.assigned_to,null);
+  assert.equal((await execute('select action from attendance_history where conversation=$1',[social.cid])).rows[0].action,'Interação do Instagram encerrada');
+  const preview=await attendance.queueClosePreview(users.receptionist,{scope:'interactions'});
+  assert.ok(preview.items.some(i=>i.id===bulk.cid));assert.ok(!preview.items.some(i=>[ordinary.cid,social.cid,claimed.cid].includes(i.id)));
+  assert.ok(!(await attendance.queueClosePreview(users.admin)).items.some(i=>i.id===bulk.cid));
+  const item=preview.items.find(i=>i.id===bulk.cid);
+  const ordinaryItem=(await attendance.queueClosePreview(users.admin)).items.find(i=>i.id===ordinary.cid);
+  assert.deepEqual((await attendance.closeQueue(users.admin,{scope:'interactions',reason:'Somente interações',items:[ordinaryItem]})).closed,[]);
+  assert.deepEqual((await attendance.closeQueue(users.admin,{reason:'Somente fila',items:[item]})).closed,[]);
+  await assert.rejects(attendance.closeQueue(users.agent,{scope:'interactions',reason:'Interações revisadas',items:[item]}),e=>e.status===403);
+  const result=await attendance.closeQueue(users.receptionist,{scope:'interactions',reason:'Interações revisadas',items:[item]});assert.deepEqual(result.closed,[bulk.cid]);
+  const history=(await execute('select * from attendance_history where conversation=$1',[bulk.cid])).rows[0];
+  assert.equal(history.action,'Interação do Instagram encerrada em massa');assert.equal(history.reason,'Interações revisadas');assert.equal(history.scheduling,null);
+  assert.equal((await execute('select count(*) as n from jobs')).rows[0].n,jobsBefore);
+  await assert.rejects(attendance.queueClosePreview(users.admin,{scope:'other'}),e=>e.status===400);
+});
+
+
+
+test('automatically attributed paid closures reject changed origin or ad and retain webhook evidence after reopening',async()=>{
+  const aid='9876543210123',f=await fixture({source_type:'ad',source_id:aid,headline:'Automatic campaign'});
+  await attendance.claim(users.agent,f.cid);
+  for(const input of [{source:'organic'},{source:'paid',ad_id:'888881'},{source:'paid'}]){
+    await assert.rejects(attendance.status(users.agent,f.cid,'resolved',{had_scheduling:false,...input}),e=>e.status===409&&/automaticamente/.test(e.message));
+    assert.equal((await execute('select status from conversations where id=$1',[f.cid])).rows[0].status,'open');
+  }
+  for(let cycle=0;cycle<2;cycle++){
+    await attendance.status(users.agent,f.cid,'resolved',{had_scheduling:false,source:'paid',ad_id:aid});
+    const touches=(await execute('select * from crm_touches where opportunity=$1',[f.o.id])).rows;
+    assert.equal(automaticPaidTouch({touches}).ad_id,aid);
+    assert.equal(touches.filter(t=>t.evidence==='manual').length,0);
+    if(cycle===0)await attendance.status(users.agent,f.cid,'open');
+  }
+});
+
+test('automatic paid lock requires matching active webhook evidence and respects explicit CRM corrections',()=>{
+  const webhook={id:'a',created:1,source:'paid',ad_id:'123',evidence:'webhook'};
+  assert.equal(automaticPaidTouch({touches:[webhook]}),webhook);
+  assert.equal(automaticPaidTouch({touches:[{...webhook,evidence:'manual'}]}),null);
+  assert.equal(automaticPaidTouch({touches:[{...webhook,ignored_for_attribution:true}]}),null);
+  const correction={id:'b',created:2,source:'paid',ad_id:'123',evidence:'manual',referral:{correct_first:true}};
+  assert.equal(automaticPaidTouch({touches:[webhook,correction]}),webhook);
+  assert.equal(automaticPaidTouch({touches:[webhook,{...correction,ad_id:'456'}]}),null);
+  assert.equal(automaticPaidTouch({touches:[webhook,{...correction,source:'organic',ad_id:''}]}),null);
+});
+
+
+test('information-only closure is persisted distinctly without service requirements and cannot hide confirmed bookings',async()=>{
+ const f=await fixture();await attendance.claim(users.agent,f.cid);
+ const input={source:'organic',had_scheduling:false,scheduling_outcome:'information'};
+ await assert.rejects(attendance.status(users.agent,f.cid,'resolved',{...input,had_scheduling:true}),/não pode ser combinado/);
+ await assert.rejects(attendance.status(users.agent,f.cid,'resolved',{...input,scheduling_outcome:'invalid'}),/inválida/);
+ await attendance.status(users.agent,f.cid,'resolved',input);
+ const history=(await execute("select scheduling from attendance_history where conversation=$1 and action='Atendimento finalizado'",[f.cid])).rows[0];
+ assert.equal(history.scheduling.outcome,'information');assert.equal(history.scheduling.had_scheduling,false);assert.deepEqual(history.scheduling.services,[]);
+ await attendance.status(users.agent,f.cid,'open');
+ const booking=randomUUID(),quote={clientId:'123',clientName:'Maria',service:'Manicure',professionalName:'Isaura',date:'2026-10-22',start:'13:00',end:'13:50',price:4500,duration:50};
+ await execute("insert into cashbarber_bookings(id,tenant,conversation,actor,state,quote,receipt,created,updated,expires) values($1,$2,$3,$4,'confirmed',$5,$6,$7,$7,$7)",[booking,tenant,f.cid,users.agent.id,JSON.stringify(quote),JSON.stringify({externalId:'987'}),now()]);
+ await assert.rejects(attendance.status(users.agent,f.cid,'resolved',{...input,cash_booking_ids:[booking]}),/Há serviços confirmados/);
 });

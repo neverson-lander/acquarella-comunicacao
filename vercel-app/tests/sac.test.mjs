@@ -15,6 +15,7 @@ function harness(origin = instagram, bridgeReply = false) {
   const one = async (sql, v) => {
     if (sql.startsWith('select id from messages')) return messages.has(v[0]) ? { id: 'existing' } : undefined;
     if (sql.startsWith('select * from conversations where account')) return conversations.get(`${v[0]}:${v[1]}`);
+    if (sql.startsWith('select * from conversations where tenant')) return [...conversations.values()].find(c=>c.tenant===v[0]&&c.account===v[1]&&(c.customer===v[2]||c.customer===v[3]));
     if (sql.startsWith('insert into conversations')) {
       const c = { id: v[0], tenant: v[1], account: v[2], customer: v[3], name: v[4], username: v[5], profile_checked: v[6], last_inbound: v[7] };
       conversations.set(`${c.account}:${c.customer}`, c); return c;

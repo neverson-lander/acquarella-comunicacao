@@ -11,7 +11,7 @@ if(process.env.DEPLOYMENT_MODE!=='standalone'||process.env.NODE_ENV!=='productio
 if(Buffer.from(process.env.APP_ENCRYPTION_KEY||'','base64').length!==32||process.env.CRON_SECRET?.length<32||!process.env.CRON_SECRET)throw Error('Chaves da aplicação inválidas.');
 const {default:app}=await import('../api/index.mjs');
 const directory=resolve(fileURLToPath(new URL('../public/',import.meta.url)));
-const types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.svg':'image/svg+xml','.ico':'image/x-icon','.webp':'image/webp','.json':'application/json'};
+const types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.svg':'image/svg+xml','.ico':'image/x-icon','.webp':'image/webp','.json':'application/json','.woff2':'font/woff2','.txt':'text/plain; charset=utf-8'};
 const security={'x-content-type-options':'nosniff','referrer-policy':'same-origin','content-security-policy':"default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data: blob: https://*.fbcdn.net https://*.cdninstagram.com; media-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'; form-action 'self'"};
 const server=createServer(async(req,res)=>{
   try{
@@ -70,6 +70,12 @@ const interval=setInterval(async()=>{
   }catch{globalThis.__acquarellaSchedulerStatus.latest={created,status_code:null,timed_out:true,error_msg:'Falha na execução'};console.error('Falha na verificação de alertas.');}
   finally{processing=false;}
 },60000);interval.unref();
+let processingEvaluations=false;
+const evaluationInterval=setInterval(async()=>{
+  if(processingEvaluations)return;processingEvaluations=true;
+  try{const response=await app.fetch(new Request(new URL('/api/internal/attendance-evaluations',origin),{headers:{Authorization:`Bearer ${process.env.CRON_SECRET}`}}));await response.body?.cancel();if(!response.ok)console.error('Avaliação de atendimento: HTTP',response.status);}
+  catch{console.error('Falha no processamento de avaliações.');}finally{processingEvaluations=false;}
+},15000);evaluationInterval.unref();
 await pool.query('select 1');
 server.listen(Number(process.env.PORT||3000),process.env.HOST||'127.0.0.1',()=>console.log('Central independente iniciada.'));
-for(const signal of ['SIGTERM','SIGINT'])process.once(signal,()=>{clearInterval(interval);server.close(async()=>{await pool.end();process.exit(0);});setTimeout(()=>process.exit(0),10000).unref();});
+for(const signal of ['SIGTERM','SIGINT'])process.once(signal,()=>{clearInterval(interval);clearInterval(evaluationInterval);server.close(async()=>{await pool.end();process.exit(0);});setTimeout(()=>process.exit(0),10000).unref();});
